@@ -94,6 +94,18 @@ Frontend dev server: http://localhost:5173 (Vite proxies `/api` and `/ws` to `ht
 
 ## 🏗️ Architecture
 
+```mermaid
+flowchart LR
+    Client[Browser] --> React[React SPA]
+    React -->|JWT Bearer| REST["REST API<br/>/api/v1/*"]
+    React -->|STOMP over SockJS<br/>/ws| Broker[WebSocket Broker]
+    REST --> Spring[Spring Boot]
+    Broker --> Spring
+    Spring --> DB[(PostgreSQL)]
+```
+
+REST carries anything a page needs to load once (auth, contact list, message history, dashboard). The WebSocket broker carries anything that needs to *arrive* rather than be *fetched* — new messages, typing state, presence changes. Both sides talk to the same Spring Boot application; the diagram below shows exactly which STOMP destination does what.
+
 ```
 ┌────────────┐   JWT (Bearer)    ┌──────────────────────┐
 │   React     │ ────────────────▶│   Spring Boot API      │
@@ -116,7 +128,7 @@ Frontend dev server: http://localhost:5173 (Vite proxies `/api` and `/ws` to `ht
                  └─────────────┘
 ```
 
-REST is used for anything a page needs to load once (auth, contact list, message history, dashboard). Everything that needs to *arrive* rather than be *fetched* — new messages, typing state, presence changes — goes over the STOMP connection. See [backend/README.md](backend/README.md) for the full real-time sequence diagram.
+See [backend/README.md](backend/README.md) for the full real-time sequence diagram.
 
 ---
 

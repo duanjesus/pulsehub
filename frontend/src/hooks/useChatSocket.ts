@@ -17,7 +17,7 @@ import type { AppNotification, Message } from "@/types/chat";
  * the Zustand stores (presence/typing), which is why nothing else needs to poll.
  */
 export function useChatSocket() {
-  const { token, isAuthenticated, user } = useAuth();
+  const { token, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const setStatus = usePresenceStore((state) => state.setStatus);
   const setTyping = useChatStore((state) => state.setTyping);
@@ -39,7 +39,7 @@ export function useChatSocket() {
         queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       },
       onTyping: (event) => {
-        setTyping(event.senderId, event.typing);
+        setTyping(event.conversationId, event.senderId, event.typing);
       },
       onPresence: (event) => {
         setStatus(event.userId, event.status);
@@ -48,7 +48,9 @@ export function useChatSocket() {
         queryClient.setQueryData<Message[]>(messagesQueryKey(event.conversationId), (old) => {
           if (!old) return old;
           return old.map((m) =>
-            m.senderId === user?.id && !m.readAt ? { ...m, readAt: event.readAt } : m,
+            m.senderId !== event.readerId && !m.readBy.includes(event.readerId)
+              ? { ...m, readBy: [...m.readBy, event.readerId] }
+              : m,
           );
         });
       },
@@ -64,5 +66,5 @@ export function useChatSocket() {
     return () => {
       disconnectSocket();
     };
-  }, [isAuthenticated, token, user?.id, queryClient, setStatus, setTyping]);
+  }, [isAuthenticated, token, queryClient, setStatus, setTyping]);
 }

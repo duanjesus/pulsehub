@@ -32,8 +32,6 @@ public class Message {
     @Column(nullable = false, updatable = false)
     private LocalDateTime sentAt;
 
-    private LocalDateTime readAt;
-
     @PrePersist
     void onCreate() {
         this.sentAt = LocalDateTime.now();

@@ -1,5 +1,6 @@
 package com.pulsehub.entity;
 
+import com.pulsehub.entity.enums.ConversationType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,12 +10,13 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * Private 1:1 conversation. {@code userOneId} is always the lower user id of the
- * pair — enforced in the service layer — so a (userOneId, userTwoId) pair is
- * unique regardless of who started the conversation.
+ * A conversation is either {@code DIRECT} (exactly 2 participants, deduplicated
+ * via {@code directKey} — see {@link com.pulsehub.service.impl.ConversationServiceImpl})
+ * or {@code GROUP} (named, N participants with OWNER/MEMBER roles). The actual
+ * roster lives in {@link ConversationParticipant}, not on this entity.
  */
 @Entity
-@Table(name = "conversations", uniqueConstraints = @UniqueConstraint(columnNames = {"user_one_id", "user_two_id"}))
+@Table(name = "conversations")
 @Data
 @Builder
 @NoArgsConstructor
@@ -25,11 +27,20 @@ public class Conversation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "user_one_id", nullable = false)
-    private Long userOneId;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private ConversationType type = ConversationType.DIRECT;
 
-    @Column(name = "user_two_id", nullable = false)
-    private Long userTwoId;
+    @Column(length = 100)
+    private String name;
+
+    @Column(name = "created_by")
+    private Long createdBy;
+
+    /** Only set for DIRECT conversations: {@code "<lowerUserId>_<higherUserId>"}, unique. */
+    @Column(name = "direct_key", length = 50)
+    private String directKey;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -39,12 +50,8 @@ public class Conversation {
         this.createdAt = LocalDateTime.now();
     }
 
-    public boolean hasParticipant(Long userId) {
-        return userOneId.equals(userId) || userTwoId.equals(userId);
-    }
-
-    public Long otherParticipant(Long userId) {
-        return userOneId.equals(userId) ? userTwoId : userOneId;
+    public boolean isDirect() {
+        return type == ConversationType.DIRECT;
     }
 
 }

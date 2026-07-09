@@ -51,16 +51,16 @@ export function disconnectSocket(): void {
   client = null;
 }
 
-export function sendChatMessage(recipientId: number, content: string): void {
+export function sendChatMessage(conversationId: number, content: string): void {
   client?.publish({
     destination: "/app/chat.send",
-    body: JSON.stringify({ recipientId, content }),
+    body: JSON.stringify({ conversationId, content }),
   });
 }
 
-export function sendTyping(recipientId: number, typing: boolean): void {
+export function sendTyping(conversationId: number, typing: boolean): void {
   client?.publish({
     destination: "/app/chat.typing",
-    body: JSON.stringify({ recipientId, typing }),
+    body: JSON.stringify({ conversationId, typing }),
   });
 }

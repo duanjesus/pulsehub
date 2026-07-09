@@ -18,9 +18,9 @@
 
 ## 📖 About the project
 
-**PulseHub** is a real-time communication platform: sign up, see who else is online, and chat 1:1 with live typing indicators and presence — all over a JWT-authenticated STOMP/WebSocket connection, not polling.
+**PulseHub** is a real-time communication platform: sign up, see who else is online, and chat 1:1 or in named groups with live typing indicators, presence and read receipts — all over a JWT-authenticated STOMP/WebSocket connection, not polling.
 
-> Sign in ➜ see your **contacts' presence** (online / away / offline) ➜ open a **private chat** ➜ messages, typing state and presence all arrive **instantly**, pushed from the server.
+> Sign in ➜ see your **contacts' presence** (online / away / offline) ➜ open a **private chat** or create a **group** ➜ messages, typing state, read receipts and presence all arrive **instantly**, pushed from the server.
 
 This repository is a **monorepo** containing both halves of the system:
 
@@ -49,6 +49,8 @@ This repository is a **monorepo** containing both halves of the system:
 ✅ User Status
 
 ✅ User Profile
+
+✅ Group Conversations
 
 ✅ Docker
 
@@ -138,7 +140,7 @@ See [backend/README.md](backend/README.md) for the full real-time sequence diagr
 
 - [x] **V1** — JWT auth, contacts with live presence (online/away/offline), private 1:1 chat, typing indicator, dashboard
 - [x] **V2** — Real-time read receipts, a persisted notification center (bell + dashboard, pushed over WebSocket), and a user profile (display name, password change, avatar upload)
-- [ ] **V3** — Group conversations
+- [x] **V3** — Group conversations: named groups with OWNER/MEMBER roles, add/remove members, leave (with automatic owner hand-off), and typing/read-receipts generalized to N participants ("Read 2/4")
 - [ ] **V4** — Message image/file attachments
 - [ ] **V5** — Video calls (WebRTC scaffolding, not a full implementation)
 

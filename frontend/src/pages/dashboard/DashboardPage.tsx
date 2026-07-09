@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
+import { useAuth } from "@/context/AuthContext";
 import { useDashboard } from "@/hooks/useDashboard";
-import { useConversations } from "@/hooks/useConversations";
 import { useMarkNotificationAsRead } from "@/hooks/useNotifications";
+import { GroupIcon } from "@/pages/chat/components/ConversationList";
 import { usePresenceStore } from "@/store/presenceStore";
-import type { AppNotification } from "@/types/chat";
+import type { AppNotification, Conversation } from "@/types/chat";
 
 function StatTile({ label, value }: { label: string; value: number }) {
   return (
@@ -20,7 +21,7 @@ function StatTile({ label, value }: { label: string; value: number }) {
 
 export function DashboardPage() {
   const { data, isLoading } = useDashboard();
-  const { data: conversations } = useConversations();
+  const { user: currentUser } = useAuth();
   const statusByUserId = usePresenceStore((state) => state.statusByUserId);
   const markNotificationAsRead = useMarkNotificationAsRead();
   const navigate = useNavigate();
@@ -33,13 +34,18 @@ export function DashboardPage() {
     );
   }
 
+  function conversationStatus(conversation: Conversation) {
+    if (conversation.type !== "DIRECT") return undefined;
+    const other = conversation.participants.find((p) => p.userId !== currentUser?.id);
+    return other ? (statusByUserId[other.userId] ?? other.status) : undefined;
+  }
+
   function openNotification(notification: AppNotification) {
     if (!notification.readAt) {
       markNotificationAsRead.mutate(notification.id);
     }
-    const conversation = conversations?.find((c) => c.id === notification.relatedConversationId);
-    if (conversation) {
-      navigate(`/chat?with=${conversation.participant.id}`);
+    if (notification.relatedConversationId) {
+      navigate(`/chat?conversation=${notification.relatedConversationId}`);
     }
   }
 
@@ -84,17 +90,16 @@ export function DashboardPage() {
               {data.recentConversations.map((c) => (
                 <li key={c.id}>
                   <button
-                    onClick={() => navigate(`/chat?with=${c.participant.id}`)}
+                    onClick={() => navigate(`/chat?conversation=${c.id}`)}
                     className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-slate-50"
                   >
-                    <Avatar
-                      name={c.participant.name}
-                      avatarUrl={c.participant.avatarUrl}
-                      status={statusByUserId[c.participant.id] ?? c.participant.status}
-                      size="sm"
-                    />
+                    {c.type === "GROUP" ? (
+                      <GroupIcon />
+                    ) : (
+                      <Avatar name={c.name} avatarUrl={c.avatarUrl} status={conversationStatus(c)} size="sm" />
+                    )}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-slate-800">{c.participant.name}</p>
+                      <p className="truncate text-sm text-slate-800">{c.name}</p>
                       <p className="truncate text-xs text-slate-500">
                         {c.lastMessage?.content ?? "No messages yet"}
                       </p>

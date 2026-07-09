@@ -8,7 +8,7 @@ import java.util.Optional;
 
 public interface ConversationRepository extends JpaRepository<Conversation, Long> {
 
-    Optional<Conversation> findByUserOneIdAndUserTwoId(Long userOneId, Long userTwoId);
+    Optional<Conversation> findByDirectKey(String directKey);
 
-    List<Conversation> findByUserOneIdOrUserTwoIdOrderByIdDesc(Long userOneId, Long userTwoId);
+    List<Conversation> findByIdIn(List<Long> ids);
 }

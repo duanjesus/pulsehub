@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useConversations } from "@/hooks/useConversations";
 import {
   useMarkAllNotificationsAsRead,
   useMarkNotificationAsRead,
@@ -28,7 +27,6 @@ export function NotificationBell() {
 
   const { data: unreadCount } = useUnreadNotificationsCount();
   const { data: notifications } = useNotifications();
-  const { data: conversations } = useConversations();
   const markAsRead = useMarkNotificationAsRead();
   const markAllAsRead = useMarkAllNotificationsAsRead();
 
@@ -46,9 +44,8 @@ export function NotificationBell() {
     if (!notification.readAt) {
       markAsRead.mutate(notification.id);
     }
-    const conversation = conversations?.find((c) => c.id === notification.relatedConversationId);
-    if (conversation) {
-      navigate(`/chat?with=${conversation.participant.id}`);
+    if (notification.relatedConversationId) {
+      navigate(`/chat?conversation=${notification.relatedConversationId}`);
       setOpen(false);
     }
   }

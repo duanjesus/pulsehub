@@ -1,4 +1,15 @@
-import type { UserSummary } from "@/types/user";
+import type { UserStatus, UserSummary } from "@/types/user";
+
+export type ConversationType = "DIRECT" | "GROUP";
+export type ParticipantRole = "OWNER" | "MEMBER";
+
+export interface ParticipantSummary {
+  userId: number;
+  name: string;
+  avatarUrl: string | null;
+  status: UserStatus;
+  role: ParticipantRole;
+}
 
 export interface Message {
   id: number;
@@ -6,12 +17,18 @@ export interface Message {
   senderId: number;
   content: string;
   sentAt: string;
-  readAt: string | null;
+  /** User ids (excluding the sender) who have read this message so far. */
+  readBy: number[];
 }
 
 export interface Conversation {
   id: number;
-  participant: UserSummary;
+  type: ConversationType;
+  /** Group name, or (for DIRECT) the other participant's display name. */
+  name: string;
+  /** null for GROUP conversations. */
+  avatarUrl: string | null;
+  participants: ParticipantSummary[];
   lastMessage: Message | null;
   unreadCount: number;
 }

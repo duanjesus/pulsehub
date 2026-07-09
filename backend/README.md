@@ -2,7 +2,7 @@
 
 # PulseHub — Backend
 
-### Spring Boot backend for a real-time communication platform: JWT auth, private messaging, presence and typing indicators over STOMP/WebSocket
+### Spring Boot backend for a real-time communication platform: JWT auth, private messaging, presence, typing indicators, read receipts and notifications over STOMP/WebSocket
 
 [![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-brightgreen?logo=springboot)](https://spring.io/projects/spring-boot)
@@ -63,12 +63,19 @@ Client A                    Server                     Client B
    │ SEND /app/chat.typing    │                            │
    ├─────────────────────────▶│  convertAndSendToUser(B) ──▶│ /user/queue/typing
    │                          │                            │
+   │ POST /conversations/1/read (B reads A's message)       │
+   ├─────────────────────────▶│  readAt set on the message  │
+   │                          │  convertAndSendToUser(A) ──▶│ /user/queue/read-receipts
+   │                          │  (A's sent message flips to "read" live)
+   │                          │                            │
    │  DISCONNECT              │                            │
    ├─────────────────────────▶│  status=OFFLINE, lastSeenAt │
    │                          ├───────────────────────────▶│ /topic/presence
 ```
 
 Messages are always sent to a specific user's private queue via `SimpMessagingTemplate.convertAndSendToUser`, never broadcast to a shared conversation topic — only the two participants ever see them. Presence, by contrast, is public: everyone subscribes to `/topic/presence` (Slack-style workspace, not per-conversation visibility). A user idle for `pulsehub.presence.away-after-minutes` (default 5) while still connected is flipped from `ONLINE` to `AWAY` by a scheduled job (`PresenceScheduler`), and back to `ONLINE` the moment any STOMP frame from that session records activity again.
+
+Every new message also creates a persisted `Notification` row for the recipient (`NotificationService.notifyNewMessage`) and pushes it to `/user/queue/notifications` if they're connected — this is what powers the notification bell and the dashboard's Notifications card; it's independent of message read state (reading a conversation does not automatically mark its notification as read, and vice versa).
 
 ### Package layout
 
@@ -128,19 +135,31 @@ API on `http://localhost:8080`, Swagger UI on `http://localhost:8080/swagger-ui.
 | POST   | `/api/v1/auth/register`                 | Create an account, returns a JWT       |
 | POST   | `/api/v1/auth/login`                    | Authenticate, returns a JWT            |
 | GET    | `/api/v1/users`                         | List every other user with presence    |
+| GET    | `/api/v1/users/me`                      | Get the caller's own profile           |
+| PUT    | `/api/v1/users/me`                      | Update display name                    |
+| PUT    | `/api/v1/users/me/password`             | Change password (requires current password) |
+| POST   | `/api/v1/users/me/avatar`               | Upload an avatar image (multipart, ≤5MB) |
 | GET    | `/api/v1/conversations`                 | List the caller's conversations        |
 | GET    | `/api/v1/conversations/{id}/messages`   | Paginated message history              |
-| POST   | `/api/v1/conversations/{id}/read`       | Mark a conversation's messages as read |
-| GET    | `/api/v1/dashboard`                     | Online users, recent chats, unread count |
+| POST   | `/api/v1/conversations/{id}/read`       | Mark a conversation's messages as read, notifies the sender |
+| GET    | `/api/v1/notifications`                 | Paginated notification history         |
+| GET    | `/api/v1/notifications/unread-count`    | Unread notification count              |
+| POST   | `/api/v1/notifications/{id}/read`       | Mark one notification as read          |
+| POST   | `/api/v1/notifications/read-all`        | Mark every notification as read        |
+| GET    | `/api/v1/dashboard`                     | Online users, recent chats, unread counts, recent notifications |
 
-| STOMP endpoint         | Direction | Description                              |
-|------------------------|-----------|--------------------------------------------|
-| `/ws` (SockJS)          | —         | Connection endpoint, JWT in the CONNECT header |
-| `/app/chat.send`        | client → server | Send a message to `recipientId`     |
-| `/app/chat.typing`      | client → server | Notify `recipientId` of typing state |
-| `/user/queue/messages`  | server → client | New message for this user           |
-| `/user/queue/typing`    | server → client | Typing state from a peer            |
-| `/topic/presence`       | server → client | Any user's status changed           |
+| STOMP endpoint            | Direction | Description                              |
+|----------------------------|-----------|--------------------------------------------|
+| `/ws` (SockJS)              | —         | Connection endpoint, JWT in the CONNECT header |
+| `/app/chat.send`            | client → server | Send a message to `recipientId`     |
+| `/app/chat.typing`          | client → server | Notify `recipientId` of typing state |
+| `/user/queue/messages`      | server → client | New message for this user           |
+| `/user/queue/typing`        | server → client | Typing state from a peer            |
+| `/user/queue/read-receipts` | server → client | A conversation you sent messages in was just read |
+| `/user/queue/notifications` | server → client | A new notification was created for you |
+| `/topic/presence`           | server → client | Any user's status changed           |
+
+Uploaded avatars are served back as static files from `/uploads/**` (public, no JWT required — `<img>` tags can't attach an Authorization header) and stored on the `pulsehub-uploads-data` Docker volume so they survive container restarts; see `pulsehub.uploads.dir` in `application.yml` and `AvatarStorageServiceImpl`.
 
 ## 🧪 Tests
 
@@ -148,7 +167,7 @@ API on `http://localhost:8080`, Swagger UI on `http://localhost:8080/swagger-ui.
 mvn test
 ```
 
-`AuthServiceImplTest`, `ConversationServiceImplTest` and `PresenceServiceImplTest` cover the registration/login rules, the ordered-pair conversation lookup, and the online/away presence transitions with Mockito — no real database needed.
+`AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`, `NotificationServiceImplTest` and `UserServiceImplTest` cover the registration/login rules, the ordered-pair conversation lookup and read-receipt broadcast, the online/away presence transitions, notification creation/push, and profile updates — all with Mockito, no real database needed.
 
 ## 🌱 Commit convention
 

@@ -8,7 +8,9 @@ import com.pulsehub.mapper.UserMapper;
 import com.pulsehub.repository.UserRepository;
 import com.pulsehub.service.ConversationService;
 import com.pulsehub.service.DashboardService;
+import com.pulsehub.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -18,9 +20,11 @@ import java.util.List;
 public class DashboardServiceImpl implements DashboardService {
 
     private static final int RECENT_CONVERSATIONS_LIMIT = 5;
+    private static final int RECENT_NOTIFICATIONS_LIMIT = 5;
 
     private final UserRepository userRepository;
     private final ConversationService conversationService;
+    private final NotificationService notificationService;
     private final UserMapper userMapper;
 
     @Override
@@ -40,7 +44,14 @@ public class DashboardServiceImpl implements DashboardService {
                 .mapToLong(ConversationResponse::unreadCount)
                 .sum();
 
-        return new DashboardResponse(onlineUsers.size(), onlineUsers, recentConversations, unreadMessagesCount);
+        var recentNotifications = notificationService
+                .listForUser(userId, PageRequest.of(0, RECENT_NOTIFICATIONS_LIMIT))
+                .getContent();
+        long unreadNotificationsCount = notificationService.countUnread(userId);
+
+        return new DashboardResponse(
+                onlineUsers.size(), onlineUsers, recentConversations, unreadMessagesCount,
+                recentNotifications, unreadNotificationsCount);
     }
 
 }

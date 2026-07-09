@@ -6,6 +6,8 @@ public record DashboardResponse(
         long onlineUsersCount,
         List<UserResponse> onlineUsers,
         List<ConversationResponse> recentConversations,
-        long unreadMessagesCount
+        long unreadMessagesCount,
+        List<NotificationResponse> recentNotifications,
+        long unreadNotificationsCount
 ) {
 }

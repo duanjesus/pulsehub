@@ -12,7 +12,8 @@ RUN mvn clean package -DskipTests -B
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-RUN addgroup -S spring && adduser -S spring -G spring
+RUN addgroup -S spring && adduser -S spring -G spring \
+    && mkdir -p /app/uploads && chown -R spring:spring /app/uploads
 USER spring:spring
 
 COPY --from=build /app/target/pulsehub-api.jar app.jar

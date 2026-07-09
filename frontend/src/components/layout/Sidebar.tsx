@@ -2,14 +2,17 @@ import { NavLink } from "react-router-dom";
 
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/components/ui/Avatar";
+import { useProfile } from "@/hooks/useProfile";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/chat", label: "Messages", end: false },
+  { to: "/profile", label: "Profile", end: false },
 ];
 
 export function Sidebar() {
   const { user, logout } = useAuth();
+  const { data: profile } = useProfile();
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -39,7 +42,7 @@ export function Sidebar() {
 
       {user && (
         <div className="flex items-center gap-3 border-t border-slate-200 px-4 py-4">
-          <Avatar name={user.name} status="ONLINE" size="sm" />
+          <Avatar name={user.name} avatarUrl={profile?.avatarUrl} status="ONLINE" size="sm" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-900">{user.name}</p>
             <p className="truncate text-xs text-slate-500">{user.email}</p>

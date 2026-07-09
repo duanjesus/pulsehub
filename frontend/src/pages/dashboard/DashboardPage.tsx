@@ -4,7 +4,10 @@ import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { useDashboard } from "@/hooks/useDashboard";
+import { useConversations } from "@/hooks/useConversations";
+import { useMarkNotificationAsRead } from "@/hooks/useNotifications";
 import { usePresenceStore } from "@/store/presenceStore";
+import type { AppNotification } from "@/types/chat";
 
 function StatTile({ label, value }: { label: string; value: number }) {
   return (
@@ -17,7 +20,9 @@ function StatTile({ label, value }: { label: string; value: number }) {
 
 export function DashboardPage() {
   const { data, isLoading } = useDashboard();
+  const { data: conversations } = useConversations();
   const statusByUserId = usePresenceStore((state) => state.statusByUserId);
+  const markNotificationAsRead = useMarkNotificationAsRead();
   const navigate = useNavigate();
 
   if (isLoading || !data) {
@@ -28,6 +33,16 @@ export function DashboardPage() {
     );
   }
 
+  function openNotification(notification: AppNotification) {
+    if (!notification.readAt) {
+      markNotificationAsRead.mutate(notification.id);
+    }
+    const conversation = conversations?.find((c) => c.id === notification.relatedConversationId);
+    if (conversation) {
+      navigate(`/chat?with=${conversation.participant.id}`);
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto p-6">
       <h1 className="mb-6 text-xl font-semibold text-slate-900">Dashboard</h1>
@@ -35,7 +50,7 @@ export function DashboardPage() {
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatTile label="Online users" value={data.onlineUsersCount} />
         <StatTile label="Unread messages" value={data.unreadMessagesCount} />
-        <StatTile label="Recent conversations" value={data.recentConversations.length} />
+        <StatTile label="Unread notifications" value={data.unreadNotificationsCount} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -51,7 +66,7 @@ export function DashboardPage() {
                     onClick={() => navigate(`/chat?with=${u.id}`)}
                     className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-slate-50"
                   >
-                    <Avatar name={u.name} status={statusByUserId[u.id] ?? u.status} size="sm" />
+                    <Avatar name={u.name} avatarUrl={u.avatarUrl} status={statusByUserId[u.id] ?? u.status} size="sm" />
                     <span className="truncate text-sm text-slate-800">{u.name}</span>
                   </button>
                 </li>
@@ -74,6 +89,7 @@ export function DashboardPage() {
                   >
                     <Avatar
                       name={c.participant.name}
+                      avatarUrl={c.participant.avatarUrl}
                       status={statusByUserId[c.participant.id] ?? c.participant.status}
                       size="sm"
                     />
@@ -95,9 +111,27 @@ export function DashboardPage() {
           )}
         </section>
 
-        <section className="rounded-lg border border-dashed border-slate-300 bg-white p-5 lg:col-span-1">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 lg:col-span-1">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">Notifications</h2>
-          <EmptyState message="Notifications are coming in V3." />
+          {data.recentNotifications.length === 0 ? (
+            <EmptyState message="You're all caught up." />
+          ) : (
+            <ul className="space-y-3">
+              {data.recentNotifications.map((notification) => (
+                <li key={notification.id}>
+                  <button
+                    onClick={() => openNotification(notification)}
+                    className={`flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-slate-50 ${
+                      notification.readAt ? "" : "bg-brand-50/60"
+                    }`}
+                  >
+                    <p className="truncate text-sm text-slate-800">{notification.title}</p>
+                    <p className="line-clamp-1 text-xs text-slate-500">{notification.body}</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
     </div>

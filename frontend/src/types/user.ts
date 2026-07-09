@@ -13,6 +13,7 @@ export interface UserSummary {
   avatarUrl: string | null;
   status: UserStatus;
   lastSeenAt: string | null;
+  createdAt: string;
 }
 
 export interface PresenceEvent {

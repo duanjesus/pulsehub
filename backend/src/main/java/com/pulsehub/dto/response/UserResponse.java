@@ -10,6 +10,7 @@ public record UserResponse(
         String email,
         String avatarUrl,
         UserStatus status,
-        LocalDateTime lastSeenAt
+        LocalDateTime lastSeenAt,
+        LocalDateTime createdAt
 ) {
 }

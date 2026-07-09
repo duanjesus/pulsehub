@@ -1,13 +1,15 @@
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 
-import type { Message, TypingEvent } from "@/types/chat";
+import type { AppNotification, Message, ReadReceiptEvent, TypingEvent } from "@/types/chat";
 import type { PresenceEvent } from "@/types/user";
 
 interface SocketCallbacks {
   onMessage: (message: Message) => void;
   onTyping: (event: TypingEvent) => void;
   onPresence: (event: PresenceEvent) => void;
+  onReadReceipt: (event: ReadReceiptEvent) => void;
+  onNotification: (notification: AppNotification) => void;
 }
 
 const SOCKET_URL = import.meta.env.VITE_WS_BASE_URL ?? "/ws";
@@ -33,6 +35,8 @@ export function connectSocket(token: string, callbacks: SocketCallbacks): void {
         client!.subscribe("/user/queue/messages", (msg) => callbacks.onMessage(parseBody(msg))),
         client!.subscribe("/user/queue/typing", (msg) => callbacks.onTyping(parseBody(msg))),
         client!.subscribe("/topic/presence", (msg) => callbacks.onPresence(parseBody(msg))),
+        client!.subscribe("/user/queue/read-receipts", (msg) => callbacks.onReadReceipt(parseBody(msg))),
+        client!.subscribe("/user/queue/notifications", (msg) => callbacks.onNotification(parseBody(msg))),
       ];
     },
   });

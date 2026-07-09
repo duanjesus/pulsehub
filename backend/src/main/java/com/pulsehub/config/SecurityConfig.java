@@ -33,6 +33,7 @@ public class SecurityConfig {
     private static final String[] PUBLIC_ROUTES = {
             "/api/v1/auth/**",
             "/ws/**",
+            "/uploads/**",
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",

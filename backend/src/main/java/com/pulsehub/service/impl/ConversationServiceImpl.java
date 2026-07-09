@@ -2,6 +2,7 @@ package com.pulsehub.service.impl;
 
 import com.pulsehub.dto.response.ConversationResponse;
 import com.pulsehub.dto.response.MessageResponse;
+import com.pulsehub.dto.response.ReadReceiptEvent;
 import com.pulsehub.entity.Conversation;
 import com.pulsehub.entity.User;
 import com.pulsehub.exception.BusinessException;
@@ -15,10 +16,12 @@ import com.pulsehub.service.ConversationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -31,6 +34,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final UserRepository userRepository;
     private final UserMapper userMapper;
     private final MessageMapper messageMapper;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Override
     @Transactional
@@ -84,8 +88,15 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional
     public void markAsRead(Long conversationId, Long readerId) {
-        getParticipatingConversation(conversationId, readerId);
-        messageRepository.markConversationAsRead(conversationId, readerId);
+        Conversation conversation = getParticipatingConversation(conversationId, readerId);
+        int updated = messageRepository.markConversationAsRead(conversationId, readerId);
+
+        if (updated > 0) {
+            Long senderId = conversation.otherParticipant(readerId);
+            userRepository.findById(senderId).ifPresent(sender -> messagingTemplate.convertAndSendToUser(
+                    sender.getEmail(), "/queue/read-receipts",
+                    new ReadReceiptEvent(conversationId, readerId, LocalDateTime.now())));
+        }
     }
 
     private Conversation getParticipatingConversation(Long conversationId, Long userId) {

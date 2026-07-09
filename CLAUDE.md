@@ -4,7 +4,7 @@ Guidance for Claude Code (or any AI coding agent) working in this repository.
 
 ## What this is
 
-A monorepo for PulseHub, a real-time communication platform: users sign up, see which of their contacts are **online / away / offline**, and exchange **private 1:1 messages** with a live **typing indicator** — all pushed over a JWT-authenticated STOMP/WebSocket connection, not polled.
+A monorepo for PulseHub, a real-time communication platform: users sign up, see which of their contacts are **online / away / offline**, and exchange **private 1:1 messages** with a live **typing indicator** and **read receipts** — all pushed over a JWT-authenticated STOMP/WebSocket connection, not polled. New messages also generate a persisted, real-time-pushed **notification** (bell + dashboard card), and users can manage a small **profile** (display name, password, avatar upload).
 
 ```
 pulsehub/
@@ -40,17 +40,20 @@ The frontend has **no backend code of its own** — it's a pure client of the AP
 | `backend/.../entity/enums/UserStatus.java` | `frontend/src/types/user.ts` (`UserStatus` union + `STATUS_LABELS`) |
 | `backend/.../controller/*.java` (REST) | `frontend/src/hooks/use*.ts` |
 | `backend/.../controller/ws/ChatWebSocketController.java` (STOMP destinations) | `frontend/src/lib/ws.ts` |
+| `backend/.../entity/enums/NotificationType.java` | `frontend/src/types/chat.ts` (`NotificationType`) |
 | `GlobalExceptionHandler` → `ErrorResponse` shape | `frontend/src/types/common.ts` (`ApiErrorResponse`) + `lib/api.ts` (`extractErrorMessage`) |
 
-API base path: `/api/v1`. All REST routes require a JWT (`Authorization: Bearer <token>`) except `/api/v1/auth/**` and Swagger. There is no admin/role split — every authenticated user has the same single `ROLE_USER` authority, and every other registered user is a visible "contact" (`GET /api/v1/users`); there is no friend-request/approval flow in V1.
+API base path: `/api/v1`. All REST routes require a JWT (`Authorization: Bearer <token>`) except `/api/v1/auth/**`, `/uploads/**` and Swagger. There is no admin/role split — every authenticated user has the same single `ROLE_USER` authority, and every other registered user is a visible "contact" (`GET /api/v1/users`); there is no friend-request/approval flow.
 
 ### Real-time is STOMP, not raw WebSocket
 
 The STOMP endpoint is `/ws` (SockJS fallback enabled). The CONNECT frame's `Authorization` header carries the same JWT as REST calls — `WebSocketAuthChannelInterceptor` (`backend/.../security/`) validates it and attaches a `Principal` (the user's email) to the session, exactly per Spring's documented pattern for STOMP JWT auth. Every later frame on that session is authenticated for free because of this — don't re-validate per-message.
 
 - `/app/chat.send`, `/app/chat.typing` — client → server (`ChatWebSocketController`)
-- `/user/queue/messages`, `/user/queue/typing` — server → one specific user, via `SimpMessagingTemplate.convertAndSendToUser(email, ...)`. **Never** broadcast a message or typing event to a shared conversation topic — only the two participants should ever see them.
+- `/user/queue/messages`, `/user/queue/typing`, `/user/queue/read-receipts`, `/user/queue/notifications` — server → one specific user, via `SimpMessagingTemplate.convertAndSendToUser(email, ...)`. **Never** broadcast a message, typing, read-receipt or notification event to a shared conversation topic — only the relevant participant(s) should ever see them.
 - `/topic/presence` — server → everyone. Presence is intentionally public (Slack-workspace style), unlike messages.
+
+Read receipts and notifications are two independent signals, both triggered around the same message but not coupled: `ConversationServiceImpl.markAsRead` pushes a `ReadReceiptEvent` to the *sender* when their message is read (drives the ✓✓ checkmark), while `NotificationServiceImpl.notifyNewMessage` persists+pushes a `Notification` to the *recipient* the moment the message is sent (drives the bell). Marking a conversation's messages as read does **not** mark its notification(s) as read, and vice versa — that's intentional, not an oversight; don't "fix" it by cross-wiring them without discussing it first.
 
 Presence transitions: `ONLINE` on STOMP session connect, `OFFLINE` (+ `lastSeenAt`) on disconnect, `AWAY` after `pulsehub.presence.away-after-minutes` (default 5) of inactivity — flipped by a `@Scheduled` job (`PresenceScheduler`) that runs every 60s, not by a client heartbeat timer. Any inbound chat/typing frame counts as activity and flips `AWAY` back to `ONLINE` immediately (`PresenceService.recordActivity`). If you add a new STOMP destination that represents user activity, call `recordActivity` from it too, or idle users sending only that frame type will incorrectly go `AWAY`.
 
@@ -61,8 +64,9 @@ Conversations are looked up by an **ordered pair** of user ids (`userOneId < use
 - Layered architecture: `controller` (REST) / `controller/ws` (STOMP) → `service` (+ `service/impl`) → `repository`, with MapStruct `mapper` interfaces for entity→response DTO conversion only. Anything that composes data across entities (e.g. `ConversationResponse` combining participant + last message + unread count) is assembled by hand in the service layer, not MapStruct.
 - Schema is owned by **Flyway** (`backend/src/main/resources/db/migration/V*.sql`), `ddl-auto: validate` — Hibernate never mutates the schema. Adding a column/table means a new `V<n>__description.sql` migration, never editing an already-applied one.
 - Custom exceptions (`ResourceNotFoundException`, `DuplicateResourceException`, `BusinessException`, `InvalidCredentialsException`) map to specific HTTP statuses in `GlobalExceptionHandler` — throw the right one rather than a generic exception.
-- Tests live in `backend/src/test`, JUnit 5 + Mockito + AssertJ, one test class per service impl that has real branching logic (`AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`).
+- Tests live in `backend/src/test`, JUnit 5 + Mockito + AssertJ, one test class per service impl that has real branching logic (`AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`, `NotificationServiceImplTest`, `UserServiceImplTest`).
 - Commit convention: Conventional Commits (`feat`, `fix`, `refactor`, `docs`, `style`, `test`, `chore`).
+- Avatar uploads are stored on disk under `pulsehub.uploads.dir` (`AvatarStorageServiceImpl`), not in the database — validated for content-type (`image/png|jpeg|webp|gif`) and size (≤5MB) before being written. The property defaults to a relative `uploads` dir, which resolves to `/app/uploads` inside the Docker image (pre-created and chowned to the `spring` user in `backend/Dockerfile`, backed by the `pulsehub-uploads-data` volume) and to `backend/uploads` for local `mvn spring-boot:run`. Served back publicly via the `/uploads/**` resource handler in `WebConfig` — there's no per-user access control on the URL itself, so don't treat it as anything more sensitive than a public avatar.
 
 ## Frontend conventions (`frontend/`)
 
@@ -75,5 +79,6 @@ Conversations are looked up by an **ordered pair** of user ids (`userOneId < use
 ## Things to watch for
 
 - `vite.config.ts` sets `define: { global: "window" }` — required because `sockjs-client` references Node's `global`, which doesn't exist in a browser. Removing it breaks the app at import time with `ReferenceError: global is not defined`.
+- Any new backend route the frontend fetches as a static asset (like `/uploads/**`) needs its own proxy entry in **both** `frontend/vite.config.ts` (dev) and `frontend/nginx.conf` (prod) — `/api` and `/ws` being proxied does not imply anything else is. This was a real bug caught during V2 verification: avatar `<img>` tags 404'd silently against Vite's own dev server (which falls back to serving `index.html` for unknown paths) until `/uploads` was added to the proxy config — the failure mode is a broken image with no console error and no failed-network-request either, so it's easy to miss without visually checking the rendered page.
 - CORS and STOMP `setAllowedOriginPatterns` are both wide open (`"*"`) — fine for this project's current scope, revisit before adding real authz stakes.
 - The frontend derives "is this contact typing" and "is this contact online" purely from `store/chatStore.ts` / `store/presenceStore.ts`, keyed by user id — there is no polling fallback, so if the socket connection drops, presence/typing silently go stale until it reconnects (`reconnectDelay: 5000` in `lib/ws.ts`).

@@ -1,6 +1,7 @@
 package com.pulsehub.service;
 
 import com.pulsehub.entity.Conversation;
+import com.pulsehub.entity.User;
 import com.pulsehub.exception.BusinessException;
 import com.pulsehub.mapper.MessageMapper;
 import com.pulsehub.mapper.UserMapper;
@@ -13,11 +14,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -34,6 +37,8 @@ class ConversationServiceImplTest {
     private UserMapper userMapper;
     @Mock
     private MessageMapper messageMapper;
+    @Mock
+    private SimpMessagingTemplate messagingTemplate;
 
     @InjectMocks
     private ConversationServiceImpl conversationService;
@@ -67,6 +72,32 @@ class ConversationServiceImplTest {
                 .isInstanceOf(BusinessException.class);
 
         verifyNoInteractions(conversationRepository);
+    }
+
+    @Test
+    void markAsRead_broadcastsReadReceiptToTheOtherParticipantWhenRowsWereUpdated() {
+        Conversation conversation = Conversation.builder().id(42L).userOneId(5L).userTwoId(9L).build();
+        User sender = User.builder().id(5L).email("sender@pulsehub.dev").build();
+
+        when(conversationRepository.findById(42L)).thenReturn(Optional.of(conversation));
+        when(messageRepository.markConversationAsRead(42L, 9L)).thenReturn(2);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(sender));
+
+        conversationService.markAsRead(42L, 9L);
+
+        verify(messagingTemplate).convertAndSendToUser(eq("sender@pulsehub.dev"), eq("/queue/read-receipts"), any());
+    }
+
+    @Test
+    void markAsRead_doesNotBroadcastWhenNothingWasUnread() {
+        Conversation conversation = Conversation.builder().id(42L).userOneId(5L).userTwoId(9L).build();
+
+        when(conversationRepository.findById(42L)).thenReturn(Optional.of(conversation));
+        when(messageRepository.markConversationAsRead(42L, 9L)).thenReturn(0);
+
+        conversationService.markAsRead(42L, 9L);
+
+        verifyNoInteractions(messagingTemplate);
     }
 
 }

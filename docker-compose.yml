@@ -34,6 +34,8 @@ services:
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
     ports:
       - "8080:8080"
+    volumes:
+      - pulsehub-uploads-data:/app/uploads
 
   web:
     build: ./frontend
@@ -46,3 +48,4 @@ services:
 
 volumes:
   pulsehub-db-data:
+  pulsehub-uploads-data:

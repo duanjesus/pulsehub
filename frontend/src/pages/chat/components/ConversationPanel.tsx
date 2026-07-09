@@ -38,9 +38,10 @@ export function ConversationPanel({ contactId }: { contactId: number }) {
     if (conversation && conversation.unreadCount > 0) {
       markAsRead.mutate(conversation.id);
     }
-    // Only re-run when the selected conversation itself changes.
+    // Re-run when switching conversations, and again whenever more unread
+    // messages arrive for the one currently open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversation?.id]);
+  }, [conversation?.id, conversation?.unreadCount]);
 
   useEffect(() => {
     setDraft("");
@@ -78,7 +79,7 @@ export function ConversationPanel({ contactId }: { contactId: number }) {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
-        <Avatar name={contact.name} status={status} />
+        <Avatar name={contact.name} avatarUrl={contact.avatarUrl} status={status} />
         <div>
           <p className="text-sm font-semibold text-slate-900">{contact.name}</p>
           <p className="text-xs text-slate-500">{isPeerTyping ? "Typing…" : STATUS_LABELS[status]}</p>
@@ -102,6 +103,16 @@ export function ConversationPanel({ contactId }: { contactId: number }) {
                     }`}
                   >
                     <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    {isOwn && (
+                      <span
+                        className={`mt-0.5 flex justify-end text-[11px] ${
+                          message.readAt ? "text-white" : "text-brand-200"
+                        }`}
+                        title={message.readAt ? "Read" : "Sent"}
+                      >
+                        {message.readAt ? "✓✓" : "✓"}
+                      </span>
+                    )}
                   </div>
                 </li>
               );

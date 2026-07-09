@@ -48,6 +48,8 @@ This repository is a **monorepo** containing both halves of the system:
 
 ✅ User Status
 
+✅ User Profile
+
 ✅ Docker
 
 ✅ CI/CD
@@ -70,7 +72,7 @@ docker compose up --build
 | Swagger  | http://localhost:8080/swagger-ui.html      |
 | Postgres | localhost:5432                             |
 
-The `web` container (nginx) serves the built React app and proxies `/api/*` and `/ws/*` calls to the `api` container. Open the frontend in **two different browsers (or one normal + one private window)**, sign up two accounts, and message between them to see presence and typing update live.
+The `web` container (nginx) serves the built React app and proxies `/api/*`, `/ws/*` and `/uploads/*` calls to the `api` container. Open the frontend in **two different browsers (or one normal + one private window)**, sign up two accounts, and message between them to see presence, typing, read receipts and notifications update live.
 
 ## 🧪 Local development (without Docker)
 
@@ -135,9 +137,9 @@ See [backend/README.md](backend/README.md) for the full real-time sequence diagr
 ## 🗺️ Roadmap
 
 - [x] **V1** — JWT auth, contacts with live presence (online/away/offline), private 1:1 chat, typing indicator, dashboard
-- [ ] **V2** — Group conversations
-- [ ] **V3** — Notifications
-- [ ] **V4** — Image uploads
+- [x] **V2** — Real-time read receipts, a persisted notification center (bell + dashboard, pushed over WebSocket), and a user profile (display name, password change, avatar upload)
+- [ ] **V3** — Group conversations
+- [ ] **V4** — Message image/file attachments
 - [ ] **V5** — Video calls (WebRTC scaffolding, not a full implementation)
 
 ---

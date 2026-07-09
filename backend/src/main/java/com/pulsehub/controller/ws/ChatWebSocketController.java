@@ -12,6 +12,7 @@ import com.pulsehub.repository.UserRepository;
 import com.pulsehub.security.CurrentUserProvider;
 import com.pulsehub.service.ConversationService;
 import com.pulsehub.service.MessageService;
+import com.pulsehub.service.NotificationService;
 import com.pulsehub.service.PresenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -36,6 +37,7 @@ public class ChatWebSocketController {
     private final ConversationService conversationService;
     private final MessageService messageService;
     private final PresenceService presenceService;
+    private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
     private final SimpMessagingTemplate messagingTemplate;
@@ -54,6 +56,8 @@ public class ChatWebSocketController {
 
         messagingTemplate.convertAndSendToUser(recipient.getEmail(), "/queue/messages", response);
         messagingTemplate.convertAndSendToUser(sender.getEmail(), "/queue/messages", response);
+
+        notificationService.notifyNewMessage(recipient.getId(), sender.getName(), request.content(), conversation.getId());
     }
 
     @MessageMapping("/chat.typing")

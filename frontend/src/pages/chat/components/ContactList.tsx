@@ -11,6 +11,7 @@ import type { UserStatus } from "@/types/user";
 interface ContactRow {
   id: number;
   name: string;
+  avatarUrl: string | null;
   status: UserStatus;
   preview: string | null;
   unreadCount: number;
@@ -40,6 +41,7 @@ export function ContactList({
         return {
           id: contact.id,
           name: contact.name,
+          avatarUrl: contact.avatarUrl,
           status: statusByUserId[contact.id] ?? contact.status,
           preview: conversation?.lastMessage?.content ?? null,
           unreadCount: conversation?.unreadCount ?? 0,
@@ -76,7 +78,7 @@ export function ContactList({
               activeContactId === row.id ? "bg-brand-50" : ""
             }`}
           >
-            <Avatar name={row.name} status={row.status} size="sm" />
+            <Avatar name={row.name} avatarUrl={row.avatarUrl} status={row.status} size="sm" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-slate-900">{row.name}</p>
               <p className="truncate text-xs text-slate-500">{row.preview ?? "No messages yet"}</p>

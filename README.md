@@ -2,7 +2,7 @@
 
 # PulseHub
 
-### Real-time communication platform built with Spring Boot, WebSockets and React
+### Real-time communication platform with messaging, online presence, notifications and event-driven architecture built using Java, Spring Boot and WebSockets
 
 [![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-brightgreen?logo=springboot)](https://spring.io/projects/spring-boot)
@@ -28,6 +28,30 @@ This repository is a **monorepo** containing both halves of the system:
 |---|---|---|
 | [`backend/`](backend) | Spring Boot 3 API — JWT auth, STOMP over WebSocket, PostgreSQL + Flyway | [backend/README.md](backend/README.md) |
 | [`frontend/`](frontend) | React + TypeScript SPA — STOMP.js/SockJS client, TanStack Query, Zustand | [frontend/README.md](frontend/README.md) |
+
+---
+
+## ✨ Features
+
+```
+✅ JWT Authentication
+
+✅ Private Messaging
+
+✅ Online Presence
+
+✅ Typing Indicator
+
+✅ Read Receipts
+
+✅ Real-time Notifications
+
+✅ User Status
+
+✅ Docker
+
+✅ CI/CD
+```
 
 ---
 

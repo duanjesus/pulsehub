@@ -1,0 +1,52 @@
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { useAuth } from "@/context/AuthContext";
+import { connectSocket, disconnectSocket } from "@/lib/ws";
+import { usePresenceStore } from "@/store/presenceStore";
+import { useChatStore } from "@/store/chatStore";
+import { CONVERSATIONS_QUERY_KEY } from "@/hooks/useConversations";
+import { messagesQueryKey } from "@/hooks/useMessages";
+import type { Message } from "@/types/chat";
+
+/**
+ * Owns the single STOMP connection for the whole app — mount once near the
+ * root of the authenticated tree. Incoming frames are fanned out into the
+ * TanStack Query cache (messages/conversations/dashboard) and the Zustand
+ * stores (presence/typing), which is why nothing else needs to poll.
+ */
+export function useChatSocket() {
+  const { token, isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
+  const setStatus = usePresenceStore((state) => state.setStatus);
+  const setTyping = useChatStore((state) => state.setTyping);
+
+  useEffect(() => {
+    if (!isAuthenticated || !token) {
+      disconnectSocket();
+      return;
+    }
+
+    connectSocket(token, {
+      onMessage: (message: Message) => {
+        queryClient.setQueryData<Message[]>(messagesQueryKey(message.conversationId), (old) => {
+          if (!old) return [message];
+          if (old.some((m) => m.id === message.id)) return old;
+          return [...old, message];
+        });
+        queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      },
+      onTyping: (event) => {
+        setTyping(event.senderId, event.typing);
+      },
+      onPresence: (event) => {
+        setStatus(event.userId, event.status);
+      },
+    });
+
+    return () => {
+      disconnectSocket();
+    };
+  }, [isAuthenticated, token, queryClient, setStatus, setTyping]);
+}

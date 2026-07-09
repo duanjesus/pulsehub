@@ -1,0 +1,140 @@
+<div align="center">
+
+# PulseHub
+
+### Real-time communication platform built with Spring Boot, WebSockets and React
+
+[![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)](https://openjdk.org/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-brightgreen?logo=springboot)](https://spring.io/projects/spring-boot)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](#-license)
+
+</div>
+
+---
+
+## 📖 About the project
+
+**PulseHub** is a real-time communication platform: sign up, see who else is online, and chat 1:1 with live typing indicators and presence — all over a JWT-authenticated STOMP/WebSocket connection, not polling.
+
+> Sign in ➜ see your **contacts' presence** (online / away / offline) ➜ open a **private chat** ➜ messages, typing state and presence all arrive **instantly**, pushed from the server.
+
+This repository is a **monorepo** containing both halves of the system:
+
+| Package | Description | Docs |
+|---|---|---|
+| [`backend/`](backend) | Spring Boot 3 API — JWT auth, STOMP over WebSocket, PostgreSQL + Flyway | [backend/README.md](backend/README.md) |
+| [`frontend/`](frontend) | React + TypeScript SPA — STOMP.js/SockJS client, TanStack Query, Zustand | [frontend/README.md](frontend/README.md) |
+
+---
+
+## 🚀 Quick start (full stack, with Docker)
+
+```bash
+git clone https://github.com/duanjesus/pulsehub.git
+cd pulsehub
+docker compose up --build
+```
+
+| Service  | URL                                      |
+|----------|-------------------------------------------|
+| Frontend | http://localhost:3000                     |
+| API      | http://localhost:8080                     |
+| Swagger  | http://localhost:8080/swagger-ui.html      |
+| Postgres | localhost:5432                             |
+
+The `web` container (nginx) serves the built React app and proxies `/api/*` and `/ws/*` calls to the `api` container. Open the frontend in **two different browsers (or one normal + one private window)**, sign up two accounts, and message between them to see presence and typing update live.
+
+## 🧪 Local development (without Docker)
+
+```bash
+# 1. Database only
+docker compose up -d db
+
+# 2. Backend (terminal 1)
+cd backend
+mvn spring-boot:run
+
+# 3. Frontend (terminal 2)
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend dev server: http://localhost:5173 (Vite proxies `/api` and `/ws` to `http://localhost:8080`).
+
+---
+
+## 🏗️ Architecture
+
+```
+┌────────────┐   JWT (Bearer)    ┌──────────────────────┐
+│   React     │ ────────────────▶│   Spring Boot API      │
+│   SPA       │◀──────────────── │   REST  (/api/v1/*)    │
+└─────┬──────┘   JSON responses  └──────────┬────────────┘
+      │                                     │
+      │ STOMP over SockJS (/ws)             │
+      │ CONNECT carries the same JWT        │
+      ▼                                     ▼
+┌────────────────────────────────────────────────────┐
+│           Spring WebSocket message broker           │
+│  /app/chat.send, /app/chat.typing   (client → server)│
+│  /user/queue/messages, /user/queue/typing (private)  │
+│  /topic/presence                     (public)         │
+└──────────────────────┬───────────────────────────────┘
+                        │
+                        ▼
+                 ┌─────────────┐
+                 │  PostgreSQL   │  users · conversations · messages
+                 └─────────────┘
+```
+
+REST is used for anything a page needs to load once (auth, contact list, message history, dashboard). Everything that needs to *arrive* rather than be *fetched* — new messages, typing state, presence changes — goes over the STOMP connection. See [backend/README.md](backend/README.md) for the full real-time sequence diagram.
+
+---
+
+## 🗺️ Roadmap
+
+- [x] **V1** — JWT auth, contacts with live presence (online/away/offline), private 1:1 chat, typing indicator, dashboard
+- [ ] **V2** — Group conversations
+- [ ] **V3** — Notifications
+- [ ] **V4** — Image uploads
+- [ ] **V5** — Video calls (WebRTC scaffolding, not a full implementation)
+
+---
+
+## 🏗️ Repository layout
+
+```
+pulsehub/
+├── backend/            # Spring Boot API (Java 21, WebSocket/STOMP, PostgreSQL, Flyway, JWT auth)
+│   ├── src/
+│   ├── pom.xml
+│   ├── Dockerfile
+│   └── README.md
+├── frontend/           # React + TypeScript SPA (Vite, Tailwind, TanStack Query, Zustand, STOMP.js)
+│   ├── src/
+│   ├── package.json
+│   ├── Dockerfile
+│   └── README.md
+├── docker-compose.yml  # Orchestrates db + api + web together
+├── .github/workflows/  # CI: backend build/test, frontend lint/build
+└── CLAUDE.md           # Guide for AI coding agents working in this repo
+```
+
+Each package is independently runnable and documented — see their READMEs for tech stack details, available scripts, and architecture notes.
+
+---
+
+## 🌱 Commit convention
+
+This project follows **Conventional Commits** (`feat`, `fix`, `refactor`, `docs`, `style`, `test`, `chore`) — see [backend/README.md](backend/README.md#-tests) for the full guide.
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.

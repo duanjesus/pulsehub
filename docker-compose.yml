@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pulsehub-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pulsehub_db
+      POSTGRES_USER: pulsehub_user
+      POSTGRES_PASSWORD: pulsehub_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pulsehub-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsehub_user -d pulsehub_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: pulsehub-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: pulsehub_db
+      DB_USER: pulsehub_user
+      DB_PASSWORD: pulsehub_pass
+      JWT_SECRET: ${JWT_SECRET:-cHVsc2VodWItYXBpLXN1cGVyLXNlY3JldC1rZXktY2hhbmdlLWluLXByb2R1Y3Rpb24=}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+    ports:
+      - "8080:8080"
+
+  web:
+    build: ./frontend
+    container_name: pulsehub-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+
+volumes:
+  pulsehub-db-data:

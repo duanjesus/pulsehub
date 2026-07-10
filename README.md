@@ -151,6 +151,19 @@ See [backend/README.md](backend/README.md) for the full real-time sequence diagr
 
 ---
 
+## 📸 Screenshots
+
+| | |
+|---|---|
+| **Sign in** | **Dashboard** |
+| ![Sign in](docs/screenshots/login.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+| **Direct chat** — voice message, read receipts | **Group chat** — members panel, roles |
+| ![Direct chat](docs/screenshots/chat-direct.png) | ![Group chat](docs/screenshots/chat-group.png) |
+| **Profile** — avatar, password, push notifications | |
+| ![Profile](docs/screenshots/profile.png) | |
+
+---
+
 ## 🏗️ Repository layout
 
 ```

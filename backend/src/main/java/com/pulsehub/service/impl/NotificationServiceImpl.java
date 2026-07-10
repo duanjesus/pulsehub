@@ -7,6 +7,7 @@ import com.pulsehub.mapper.NotificationMapper;
 import com.pulsehub.repository.NotificationRepository;
 import com.pulsehub.repository.UserRepository;
 import com.pulsehub.service.NotificationService;
+import com.pulsehub.service.PushSubscriptionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +25,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserRepository userRepository;
     private final NotificationMapper notificationMapper;
     private final SimpMessagingTemplate messagingTemplate;
+    private final PushSubscriptionService pushSubscriptionService;
 
     @Override
     @Transactional
@@ -40,6 +42,8 @@ public class NotificationServiceImpl implements NotificationService {
 
         userRepository.findById(recipientId).ifPresent(recipient -> messagingTemplate.convertAndSendToUser(
                 recipient.getEmail(), "/queue/notifications", notificationMapper.toResponse(saved)));
+
+        pushSubscriptionService.sendPush(recipientId, saved.getTitle(), saved.getBody(), conversationId);
     }
 
     @Override

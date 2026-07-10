@@ -11,11 +11,18 @@ export interface ParticipantSummary {
   role: ParticipantRole;
 }
 
+export type MessageType = "TEXT" | "VOICE";
+
 export interface Message {
   id: number;
   conversationId: number;
   senderId: number;
-  content: string;
+  type: MessageType;
+  /** Text body for TEXT messages; null for VOICE. */
+  content: string | null;
+  /** /uploads/voice/... path for VOICE messages; null for TEXT. */
+  attachmentUrl: string | null;
+  attachmentDurationSeconds: number | null;
   sentAt: string;
   /** User ids (excluding the sender) who have read this message so far. */
   readBy: number[];

@@ -2,7 +2,7 @@
 
 # PulseHub — Backend
 
-### Spring Boot backend for a real-time communication platform: JWT auth, direct and group messaging, presence, typing indicators, read receipts and notifications over STOMP/WebSocket
+### Spring Boot backend for a real-time communication platform: JWT auth, direct/group messaging (text and voice), presence, typing indicators, read receipts, real-time notifications and Web Push over STOMP/WebSocket
 
 [![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-brightgreen?logo=springboot)](https://spring.io/projects/spring-boot)
@@ -86,6 +86,14 @@ A `Conversation` is either `DIRECT` (exactly 2 people) or `GROUP` (named, N peop
 
 Only a `GROUP`'s `OWNER` can add/remove members (`ConversationService.addMember`/`removeMember`); anyone can leave (`leaveConversation`), and if the owner leaves, the longest-tenured remaining member is automatically promoted so the group is never left without one.
 
+### Voice messages and Web Push
+
+A `Message` is either `TEXT` (`content` set) or `VOICE` (`attachmentUrl` + `attachmentDurationSeconds` set, `content` null — enforced by a DB `CHECK` constraint). Both kinds go through the same `MessageDispatchService`, which persists the message, broadcasts it to every active participant, and fans out a `Notification` to everyone but the sender — this one place is shared by the STOMP `/app/chat.send` path (text) and the REST voice-upload path, so they can never drift out of sync. A voice message is uploaded via `POST /api/v1/conversations/{id}/messages/voice` (multipart: `file` + `durationSeconds`), validated and stored by `AudioStorageServiceImpl` the same way avatars are, and served back from `/uploads/voice/**`.
+
+Real Web Push (VAPID) delivers a browser notification even when the tab is closed. `NotificationServiceImpl.notifyNewMessage` calls `PushSubscriptionService.sendPush` after creating the in-app `Notification` — this is best-effort: failures are caught and logged, never allowed to break message sending, and a `410 Gone`/`404 Not Found` response from the push service (the browser's subscription is dead) silently prunes that `PushSubscription` row. The `nl.martijndwars:web-push` library needs the BouncyCastle security provider registered *before* it parses the VAPID keys — this is done in a `static` block in both `WebPushConfig` (which builds the shared `PushService` bean) and `PushSubscriptionServiceImpl`, deliberately redundant, because Spring doesn't guarantee bean/class initialization order and relying on just one of them caused a real `NoSuchProviderException: no such provider: BC` crash at startup during development.
+
+VAPID keys live in `pulsehub.push.vapid.*` (`application.yml`), with dev defaults committed the same way `JWT_SECRET` is — override `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` for any real deployment. Generate a fresh pair with Node's built-in `crypto` (`generateKeyPairSync('ec', { namedCurve: 'prime256v1' })`, then export as raw base64url) or the `web-push` npm CLI — no need to add either as a project dependency just to generate keys once.
+
 ### Package layout
 
 ```
@@ -119,6 +127,7 @@ backend/src/main/java/com/pulsehub
 | Migrations    | Flyway (`ddl-auto: validate`)          |
 | Database      | PostgreSQL 16                         |
 | Auth          | Spring Security + JWT (jjwt, HS256)   |
+| Push          | Web Push / VAPID (`nl.martijndwars:web-push` + BouncyCastle) |
 | Mapping       | MapStruct                             |
 | Docs          | springdoc-openapi (Swagger UI)         |
 | Tests         | JUnit 5, Mockito, AssertJ              |
@@ -152,6 +161,7 @@ API on `http://localhost:8080`, Swagger UI on `http://localhost:8080/swagger-ui.
 | POST   | `/api/v1/conversations/direct`          | Get-or-create a 1:1 conversation with `otherUserId` |
 | POST   | `/api/v1/conversations/group`           | Create a group (`name` + `memberIds`), caller becomes OWNER |
 | GET    | `/api/v1/conversations/{id}/messages`   | Paginated message history              |
+| POST   | `/api/v1/conversations/{id}/messages/voice` | Upload a voice message (multipart: `file` + `durationSeconds`) |
 | POST   | `/api/v1/conversations/{id}/read`       | Mark messages as read, notifies every other participant |
 | GET    | `/api/v1/conversations/{id}/participants` | List active participants with roles  |
 | POST   | `/api/v1/conversations/{id}/members`    | Add a member (OWNER only)              |
@@ -162,6 +172,9 @@ API on `http://localhost:8080`, Swagger UI on `http://localhost:8080/swagger-ui.
 | POST   | `/api/v1/notifications/{id}/read`       | Mark one notification as read          |
 | POST   | `/api/v1/notifications/read-all`        | Mark every notification as read        |
 | GET    | `/api/v1/dashboard`                     | Online users, recent chats, unread counts, recent notifications |
+| GET    | `/api/v1/push/vapid-public-key`         | The VAPID public key the frontend needs to subscribe |
+| POST   | `/api/v1/push/subscribe`                | Save a browser's push subscription (endpoint + keys) |
+| POST   | `/api/v1/push/unsubscribe`              | Remove a push subscription by endpoint |
 
 | STOMP endpoint            | Direction | Description                              |
 |----------------------------|-----------|--------------------------------------------|
@@ -182,7 +195,9 @@ Uploaded avatars are served back as static files from `/uploads/**` (public, no 
 mvn test
 ```
 
-`AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`, `NotificationServiceImplTest` and `UserServiceImplTest` cover the registration/login rules, the online/away presence transitions, notification creation/push, and profile updates — all with Mockito, no real database needed. `ConversationServiceImplTest` is the largest: direct-conversation dedup via `directKey`, group creation (owner + members), add/remove-member permission checks, leave-with-owner-promotion, and the multi-participant read-receipt broadcast.
+`AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`, `NotificationServiceImplTest`, `UserServiceImplTest`, `MessageDispatchServiceImplTest`, `PushSubscriptionServiceImplTest` and `AudioStorageServiceImplTest` cover the registration/login rules, the online/away presence transitions, notification creation/push, profile updates, the shared text/voice dispatch path, Web Push subscribe/unsubscribe/send (including stale-subscription pruning on a `410`/`404`), and audio upload validation — all with Mockito, no real database needed. `ConversationServiceImplTest` is the largest: direct-conversation dedup via `directKey`, group creation (owner + members), add/remove-member permission checks, leave-with-owner-promotion, and the multi-participant read-receipt broadcast.
+
+Note: `PushSubscriptionServiceImplTest` uses syntactically-valid (but not secret) EC key material for its p256dh/auth fixtures — the `web-push` library actually parses these as real cryptographic keys, so arbitrary placeholder strings throw deep inside the library rather than failing the assertion you'd expect.
 
 ## 🌱 Commit convention
 

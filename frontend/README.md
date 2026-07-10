@@ -1,6 +1,6 @@
 # PulseHub — Frontend
 
-React + TypeScript single-page app that consumes the [backend API](../backend) for auth and history, and holds a single STOMP/WebSocket connection for everything real-time: new messages, typing state, presence, read receipts and notifications — for both direct chats and groups.
+React + TypeScript single-page app that consumes the [backend API](../backend) for auth and history, and holds a single STOMP/WebSocket connection for everything real-time: new messages (text or voice), typing state, presence, read receipts and notifications — for both direct chats and groups. A service worker adds real OS-level push notifications on top.
 
 > This is the frontend half of the [PulseHub monorepo](../README.md).
 
@@ -40,6 +40,14 @@ The app runs at `http://localhost:5173`. In dev mode, Vite proxies `/api/*`, `/w
 
 Message read receipts generalize the same way: every message carries `readBy: number[]` (the user ids who've read it, excluding the sender). For a DIRECT conversation that's 0 or 1 entries, rendered as `✓`/`✓✓`; for a GROUP it's rendered as `Read N/M` against the other active participants' count.
 
+## Voice messages
+
+`ConversationPanel` records audio with the browser's `MediaRecorder` API (feature-detected — falls back to an inline error if unsupported) and uploads the resulting blob via `useSendVoiceMessage` (`POST /conversations/{id}/messages/voice`, multipart). A message's `type` is `"TEXT"` or `"VOICE"`; a `VOICE` message has `content: null` and instead carries `attachmentUrl`/`attachmentDurationSeconds`, rendered as a native `<audio controls>` player plus a duration label. There's no separate voice-message store — it flows through the exact same `messagesQueryKey` cache and `/user/queue/messages` WebSocket push as a text message.
+
+## Push notifications
+
+`lib/push.ts` wraps the browser's Push API: `subscribeToPush()` registers `public/sw.js`, requests `Notification` permission, subscribes via `PushManager` using the backend's VAPID public key (`GET /push/vapid-public-key`), and posts the resulting subscription (`endpoint` + `keys.p256dh` + `keys.auth`) to `POST /push/subscribe`. The toggle lives on the Profile page and reflects the current subscription state on load via `getExistingSubscription()`. `public/sw.js` itself just renders whatever `{ title, body, relatedConversationId }` payload the backend sends on a `push` event, and on `notificationclick` focuses (or opens) the app at `/chat?conversation=<relatedConversationId>`. This is independent of the in-app notification bell — a user can have one, both, or neither enabled.
+
 ## How real-time state flows into the UI
 
 `useChatSocket` (mounted once, inside `ProtectedRoute`) owns the single STOMP connection for the whole app and fans incoming frames out in two directions:
@@ -65,9 +73,9 @@ src/
 ├── context/         # AuthContext (JWT session, current user)
 ├── store/           # presenceStore, chatStore (Zustand — realtime state, not fetched)
 ├── hooks/           # useUsers, useConversations (+ direct/group/membership mutations),
-│                     # useMessages, useNotifications, useProfile, useDashboard (TanStack Query)
-│                     # + useChatSocket (owns the STOMP lifecycle)
-├── lib/             # Axios instance + interceptors, STOMP/SockJS client, QueryClient
+│                     # useMessages (+ useSendVoiceMessage), useNotifications, useProfile,
+│                     # useDashboard (TanStack Query) + useChatSocket (owns the STOMP lifecycle)
+├── lib/             # Axios instance + interceptors, STOMP/SockJS client, Web Push (push.ts), QueryClient
 ├── pages/
 │   ├── auth/        # LoginPage, RegisterPage
 │   ├── dashboard/   # DashboardPage (online users, recent conversations, unread counts, notifications)

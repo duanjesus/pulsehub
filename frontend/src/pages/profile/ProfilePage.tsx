@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { extractErrorMessage } from "@/lib/api";
 import { useChangePassword, useProfile, useUpdateAvatar, useUpdateName } from "@/hooks/useProfile";
+import { getExistingSubscription, isPushSupported, subscribeToPush, unsubscribeFromPush } from "@/lib/push";
 
 const nameSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name must be at most 100 characters"),
@@ -36,6 +37,34 @@ export function ProfilePage() {
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getExistingSubscription()
+      .then((subscription) => setPushEnabled(subscription !== null))
+      .catch(() => setPushEnabled(false));
+  }, []);
+
+  async function togglePush() {
+    setPushError(null);
+    setPushLoading(true);
+    try {
+      if (pushEnabled) {
+        await unsubscribeFromPush();
+        setPushEnabled(false);
+      } else {
+        await subscribeToPush();
+        setPushEnabled(true);
+      }
+    } catch (error) {
+      setPushError(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setPushLoading(false);
+    }
+  }
 
   const nameForm = useForm<NameFormValues>({
     resolver: zodResolver(nameSchema),
@@ -173,6 +202,29 @@ export function ProfilePage() {
               Update password
             </Button>
           </form>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="mb-4 text-sm font-semibold text-slate-900">Push notifications</h2>
+          {isPushSupported() ? (
+            <div className="flex flex-col gap-3">
+              <ErrorBanner message={pushError} />
+              <p className="text-sm text-slate-500">
+                Get notified about new messages even when PulseHub isn&apos;t open.
+              </p>
+              <Button
+                type="button"
+                variant={pushEnabled ? "secondary" : "primary"}
+                isLoading={pushLoading}
+                onClick={togglePush}
+                className="self-start"
+              >
+                {pushEnabled ? "Disable push notifications" : "Enable push notifications"}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Push notifications aren&apos;t supported in this browser.</p>
+          )}
         </section>
       </div>
     </div>

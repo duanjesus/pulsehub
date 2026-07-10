@@ -7,7 +7,9 @@ import java.util.List;
 
 public interface MessageService {
 
-    Message saveMessage(Long conversationId, Long senderId, String content);
+    Message saveTextMessage(Long conversationId, Long senderId, String content);
+
+    Message saveVoiceMessage(Long conversationId, Long senderId, String attachmentUrl, int durationSeconds);
 
     /** Pure builder — {@code readBy} is supplied by the caller so batch lookups can happen once per page. */
     MessageResponse toResponse(Message message, List<Long> readBy);

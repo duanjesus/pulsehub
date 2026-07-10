@@ -34,6 +34,8 @@ class NotificationServiceImplTest {
     private NotificationMapper notificationMapper;
     @Mock
     private SimpMessagingTemplate messagingTemplate;
+    @Mock
+    private PushSubscriptionService pushSubscriptionService;
 
     @InjectMocks
     private NotificationServiceImpl notificationService;
@@ -41,7 +43,8 @@ class NotificationServiceImplTest {
     @Test
     void notifyNewMessage_persistsAndPushesToRecipientQueue() {
         User recipient = User.builder().id(2L).email("grace@pulsehub.dev").build();
-        Notification saved = Notification.builder().id(10L).userId(2L).type(NotificationType.NEW_MESSAGE).build();
+        Notification saved = Notification.builder().id(10L).userId(2L).type(NotificationType.NEW_MESSAGE)
+                .title("New message from Ada Lovelace").body("hey there").build();
         NotificationResponse response = new NotificationResponse(10L, NotificationType.NEW_MESSAGE, "t", "b", 1L, null, null);
 
         when(notificationRepository.save(any(Notification.class))).thenReturn(saved);
@@ -56,6 +59,7 @@ class NotificationServiceImplTest {
         assertThat(captor.getValue().getBody()).isEqualTo("hey there");
 
         verify(messagingTemplate).convertAndSendToUser(eq("grace@pulsehub.dev"), eq("/queue/notifications"), eq(response));
+        verify(pushSubscriptionService).sendPush(2L, "New message from Ada Lovelace", "hey there", 1L);
     }
 
     @Test

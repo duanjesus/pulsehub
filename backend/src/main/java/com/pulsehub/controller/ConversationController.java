@@ -8,7 +8,9 @@ import com.pulsehub.dto.response.MessageResponse;
 import com.pulsehub.dto.response.ParticipantResponse;
 import com.pulsehub.entity.Conversation;
 import com.pulsehub.security.CurrentUserProvider;
+import com.pulsehub.service.AudioStorageService;
 import com.pulsehub.service.ConversationService;
+import com.pulsehub.service.MessageDispatchService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -27,6 +30,8 @@ import java.util.List;
 public class ConversationController {
 
     private final ConversationService conversationService;
+    private final MessageDispatchService messageDispatchService;
+    private final AudioStorageService audioStorageService;
     private final CurrentUserProvider currentUserProvider;
 
     @GetMapping
@@ -58,6 +63,20 @@ public class ConversationController {
         Long userId = currentUserProvider.getCurrentUserId();
         Page<MessageResponse> messages = conversationService.getMessages(conversationId, userId, PageRequest.of(page, size));
         return ResponseEntity.ok(messages);
+    }
+
+    @PostMapping(value = "/{conversationId}/messages/voice", consumes = "multipart/form-data")
+    public ResponseEntity<MessageResponse> sendVoiceMessage(
+            @PathVariable Long conversationId,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("durationSeconds") int durationSeconds) {
+
+        Long userId = currentUserProvider.getCurrentUserId();
+        conversationService.assertActiveParticipant(conversationId, userId);
+
+        String attachmentUrl = audioStorageService.store(userId, file);
+        MessageResponse response = messageDispatchService.dispatchVoiceMessage(conversationId, userId, attachmentUrl, durationSeconds);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/{conversationId}/read")

@@ -52,6 +52,10 @@ This repository is a **monorepo** containing both halves of the system:
 
 ✅ Group Conversations
 
+✅ Voice Messages
+
+✅ Push Notifications
+
 ✅ Docker
 
 ✅ CI/CD
@@ -74,7 +78,7 @@ docker compose up --build
 | Swagger  | http://localhost:8080/swagger-ui.html      |
 | Postgres | localhost:5432                             |
 
-The `web` container (nginx) serves the built React app and proxies `/api/*`, `/ws/*` and `/uploads/*` calls to the `api` container. Open the frontend in **two different browsers (or one normal + one private window)**, sign up two accounts, and message between them to see presence, typing, read receipts and notifications update live.
+The `web` container (nginx) serves the built React app and proxies `/api/*`, `/ws/*` and `/uploads/*` calls to the `api` container. Open the frontend in **two different browsers (or one normal + one private window)**, sign up two accounts, and message between them — including a voice note (click the microphone) — to see presence, typing, read receipts and notifications update live. Enable push notifications from the Profile page to get a real OS-level notification the next time someone messages you, even with the tab closed.
 
 ## 🧪 Local development (without Docker)
 
@@ -141,8 +145,9 @@ See [backend/README.md](backend/README.md) for the full real-time sequence diagr
 - [x] **V1** — JWT auth, contacts with live presence (online/away/offline), private 1:1 chat, typing indicator, dashboard
 - [x] **V2** — Real-time read receipts, a persisted notification center (bell + dashboard, pushed over WebSocket), and a user profile (display name, password change, avatar upload)
 - [x] **V3** — Group conversations: named groups with OWNER/MEMBER roles, add/remove members, leave (with automatic owner hand-off), and typing/read-receipts generalized to N participants ("Read 2/4")
-- [ ] **V4** — Message image/file attachments
-- [ ] **V5** — Video calls (WebRTC scaffolding, not a full implementation)
+- [x] **V4** — Voice messages (record/upload/playback) and real Web Push notifications (service worker + VAPID, delivered even when the tab is closed)
+- [ ] **V5** — Video call foundation (WebRTC signaling relayed over STOMP, minimal call UI — not a full calling product)
+- [ ] **V6** — Redis pub/sub as the STOMP broker relay, proven with 2+ backend replicas behind a load balancer (horizontal scaling)
 
 ---
 

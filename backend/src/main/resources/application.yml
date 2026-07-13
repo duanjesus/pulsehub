@@ -54,6 +54,8 @@ jwt:
   expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
 pulsehub:
+  security:
+    system-api-key: ${SYSTEM_API_KEY:pulsehub-system-dev-key-change-me}
   presence:
     away-after-minutes: 5
   uploads:

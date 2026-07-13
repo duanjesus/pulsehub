@@ -1,6 +1,7 @@
 package com.pulsehub.config;
 
 import com.pulsehub.security.JwtAuthenticationFilter;
+import com.pulsehub.security.SystemApiKeyAuthFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,6 +42,7 @@ public class SecurityConfig {
     };
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final SystemApiKeyAuthFilter systemApiKeyAuthFilter;
     private final UserDetailsService userDetailsService;
 
     @Bean
@@ -55,6 +57,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
+                .addFilterBefore(systemApiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

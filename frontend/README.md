@@ -1,6 +1,6 @@
 # PulseHub — Frontend
 
-React + TypeScript single-page app that consumes the [backend API](../backend) for auth and history, and holds a single STOMP/WebSocket connection for everything real-time: new messages (text or voice), typing state, presence, read receipts and notifications — for both direct chats and groups. A service worker adds real OS-level push notifications on top.
+React + TypeScript single-page app that consumes the [backend API](../backend) for auth and history, and holds a single STOMP/WebSocket connection for everything real-time: new messages (text or voice), typing state, presence, read receipts and notifications — for both direct chats and groups. A service worker adds real OS-level push notifications on top, and direct chats can start a 1:1 video call over WebRTC, signaled through that same connection.
 
 > This is the frontend half of the [PulseHub monorepo](../README.md).
 
@@ -9,7 +9,8 @@ React + TypeScript single-page app that consumes the [backend API](../backend) f
 - [Vite](https://vitejs.dev/) + React 18 + TypeScript
 - [React Router](https://reactrouter.com/) for client-side routing
 - [TanStack Query](https://tanstack.com/query) for server-state (conversations, contacts, message history, notifications, profile, dashboard)
-- [Zustand](https://zustand-demo.pmnd.rs/) for the two pieces of state that arrive over the socket rather than being fetched: live presence and typing indicators
+- [Zustand](https://zustand-demo.pmnd.rs/) for the state that arrives over the socket rather than being fetched: live presence, typing indicators and the current call
+- WebRTC (`RTCPeerConnection`, no library) for 1:1 video calls
 - [@stomp/stompjs](https://stomp-js.github.io/) + [sockjs-client](https://github.com/sockjs/sockjs-client) for the WebSocket connection
 - [React Hook Form](https://react-hook-form.com/) + [Zod](https://zod.dev/) for the auth and profile forms
 - [Axios](https://axios-http.com/) for HTTP, with a JWT interceptor
@@ -48,6 +49,23 @@ Message read receipts generalize the same way: every message carries `readBy: nu
 
 `lib/push.ts` wraps the browser's Push API: `subscribeToPush()` registers `public/sw.js`, requests `Notification` permission, subscribes via `PushManager` using the backend's VAPID public key (`GET /push/vapid-public-key`), and posts the resulting subscription (`endpoint` + `keys.p256dh` + `keys.auth`) to `POST /push/subscribe`. The toggle lives on the Profile page and reflects the current subscription state on load via `getExistingSubscription()`. `public/sw.js` itself just renders whatever `{ title, body, relatedConversationId }` payload the backend sends on a `push` event, and on `notificationclick` focuses (or opens) the app at `/chat?conversation=<relatedConversationId>`. This is independent of the in-app notification bell — a user can have one, both, or neither enabled.
 
+## Video calls
+
+The camera button in a direct conversation's header starts a 1:1 call; group conversations don't have one. The pieces:
+
+- **`lib/call.ts`** is the call engine and the only module that touches `RTCPeerConnection` and `getUserMedia`. It exposes `startCall`, `acceptCall`, `declineCall`, `hangUp`, `toggleMic`, `toggleCamera` and `handleCallSignal` (fed by `useChatSocket` from `/user/queue/calls`).
+- **`store/callStore.ts`** holds what the UI renders: the phase (`idle` → `outgoing`/`incoming` → `connecting` → `active`), the peer, both `MediaStream`s and the mute/camera flags. Only `lib/call.ts` writes to it.
+- **`components/call/CallOverlay.tsx`** is the whole UI: the incoming-call prompt, the in-call screen (remote video, local preview, mute/camera/hang-up) and a one-line outcome afterwards ("Grace declined the call."). It's mounted once in `AppLayout`, so a call survives navigating between pages.
+
+Things the engine handles that are easy to get wrong:
+
+- **Candidates before descriptions.** ICE candidates are buffered per `callId` until the remote description is set. On the callee that's always the case (they arrive while it's still ringing), and the server doesn't guarantee frame order, so a candidate can even overtake its own `OFFER`.
+- **No camera.** If the camera is missing or held by another app, the call falls back to voice only. A camera-less caller still adds a receive-only video line to the offer, so it can see the other side.
+- **Every async step re-checks the call is still current.** The user can hang up, or the peer can cancel, while the permission prompt is open; the freshly-opened stream is stopped instead of leaking a live camera.
+- **Other tabs.** The server echoes `ANSWER`/`REJECT` to the sender's own sessions, so a second tab of the same account stops ringing once one tab has answered.
+
+`getUserMedia` only exists in a secure context: calls work on `https://` and on `http://localhost`, and nowhere else. ICE servers are fetched from `GET /calls/ice-servers` rather than hardcoded. There's no TURN server configured, so peers behind strict NATs won't connect — see the backend README.
+
 ## How real-time state flows into the UI
 
 `useChatSocket` (mounted once, inside `ProtectedRoute`) owns the single STOMP connection for the whole app and fans incoming frames out in two directions:
@@ -57,7 +75,9 @@ Message read receipts generalize the same way: every message carries `readBy: nu
 - **Notifications** (`/user/queue/notifications`) are prepended into the notifications query cache and bump the unread-count cache, so the bell badge and the dashboard's Notifications card update instantly.
 - **Typing** (`/user/queue/typing`) and **presence** (`/topic/presence`) events update the `chatStore` / `presenceStore` Zustand stores, keyed by `conversationId` (typing) or `userId` (presence) respectively. Presence and typing are deliberately kept out of TanStack Query since they change far more often than the underlying data — components read the base conversation/contact from the query cache and overlay live state from the stores.
 
-`lib/ws.ts` wraps `@stomp/stompjs` + `sockjs-client` into a handful of functions (`connectSocket`, `disconnectSocket`, `sendChatMessage`, `sendTyping`) — nothing else in the app touches STOMP directly.
+- **Call signals** (`/user/queue/calls`) are handed to `handleCallSignal` in `lib/call.ts`, which drives the `callStore` — see "Video calls" above.
+
+`lib/ws.ts` wraps `@stomp/stompjs` + `sockjs-client` into a handful of functions (`connectSocket`, `disconnectSocket`, `sendChatMessage`, `sendTyping`, `sendCallSignal`) — nothing else in the app touches STOMP directly.
 
 Note that reading a conversation and reading a notification are independent actions: opening a chat marks its *messages* as read (and notifies the other participants), but does not mark the corresponding *notification* as read — that only happens when the bell dropdown or the dashboard's Notifications card is clicked. This mirrors the backend, which tracks the two as separate entities on purpose.
 
@@ -68,14 +88,16 @@ Note that reading a conversation and reading a notification are independent acti
 ```
 src/
 ├── components/
+│   ├── call/        # CallOverlay (incoming prompt, in-call screen)
 │   ├── layout/      # AppLayout, Sidebar, NotificationBell
 │   └── ui/          # Button, Input, Avatar, PresenceDot, EmptyState, Spinner, ErrorBanner
 ├── context/         # AuthContext (JWT session, current user)
-├── store/           # presenceStore, chatStore (Zustand — realtime state, not fetched)
+├── store/           # presenceStore, chatStore, callStore (Zustand — realtime state, not fetched)
 ├── hooks/           # useUsers, useConversations (+ direct/group/membership mutations),
 │                     # useMessages (+ useSendVoiceMessage), useNotifications, useProfile,
 │                     # useDashboard (TanStack Query) + useChatSocket (owns the STOMP lifecycle)
-├── lib/             # Axios instance + interceptors, STOMP/SockJS client, Web Push (push.ts), QueryClient
+├── lib/             # Axios instance + interceptors, STOMP/SockJS client, Web Push (push.ts),
+│                     # WebRTC call engine (call.ts), QueryClient
 ├── pages/
 │   ├── auth/        # LoginPage, RegisterPage
 │   ├── dashboard/   # DashboardPage (online users, recent conversations, unread counts, notifications)

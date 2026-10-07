@@ -18,7 +18,7 @@
 
 ## 📖 About the project
 
-**PulseHub** is a real-time communication platform: sign up, see who else is online, and chat 1:1 or in named groups with live typing indicators, presence and read receipts — all over a JWT-authenticated STOMP/WebSocket connection, not polling.
+**PulseHub** is a real-time communication platform: sign up, see who else is online, and chat 1:1 or in named groups with live typing indicators, presence and read receipts — all over a JWT-authenticated STOMP/WebSocket connection, not polling. Direct chats can also start a 1:1 video call over WebRTC.
 
 > Sign in ➜ see your **contacts' presence** (online / away / offline) ➜ open a **private chat** or create a **group** ➜ messages, typing state, read receipts and presence all arrive **instantly**, pushed from the server.
 
@@ -56,6 +56,8 @@ This repository is a **monorepo** containing both halves of the system:
 
 ✅ Push Notifications
 
+✅ Video Calls (1:1, WebRTC)
+
 ✅ Docker
 
 ✅ CI/CD
@@ -78,7 +80,7 @@ docker compose up --build
 | Swagger  | http://localhost:8080/swagger-ui.html      |
 | Postgres | localhost:5432                             |
 
-The `web` container (nginx) serves the built React app and proxies `/api/*`, `/ws/*` and `/uploads/*` calls to the `api` container. Open the frontend in **two different browsers (or one normal + one private window)**, sign up two accounts, and message between them — including a voice note (click the microphone) — to see presence, typing, read receipts and notifications update live. Enable push notifications from the Profile page to get a real OS-level notification the next time someone messages you, even with the tab closed.
+The `web` container (nginx) serves the built React app and proxies `/api/*`, `/ws/*` and `/uploads/*` calls to the `api` container. Open the frontend in **two different browsers (or one normal + one private window)**, sign up two accounts, and message between them — including a voice note (click the microphone) — to see presence, typing, read receipts and notifications update live. Click the camera icon in a direct chat to start a video call between the two (on one machine with one webcam, the second browser may fall back to voice only if the first is holding the camera). Enable push notifications from the Profile page to get a real OS-level notification the next time someone messages you, even with the tab closed.
 
 ## 🧪 Local development (without Docker)
 
@@ -112,7 +114,7 @@ flowchart LR
     Spring --> DB[(PostgreSQL)]
 ```
 
-REST carries anything a page needs to load once (auth, contact list, message history, dashboard). The WebSocket broker carries anything that needs to *arrive* rather than be *fetched* — new messages, typing state, presence changes. Both sides talk to the same Spring Boot application; the diagram below shows exactly which STOMP destination does what.
+REST carries anything a page needs to load once (auth, contact list, message history, dashboard). The WebSocket broker carries anything that needs to *arrive* rather than be *fetched* — new messages, typing state, presence changes, and the signaling for video calls. A call's audio and video never touch the server: the broker only relays the WebRTC handshake, and the two browsers then talk to each other directly. Both sides talk to the same Spring Boot application; the diagram below shows exactly which STOMP destination does what.
 
 ```
 ┌────────────┐   JWT (Bearer)    ┌──────────────────────┐
@@ -126,7 +128,9 @@ REST carries anything a page needs to load once (auth, contact list, message his
 ┌────────────────────────────────────────────────────┐
 │           Spring WebSocket message broker           │
 │  /app/chat.send, /app/chat.typing   (client → server)│
+│  /app/call.signal                   (client → server)│
 │  /user/queue/messages, /user/queue/typing (private)  │
+│  /user/queue/calls                  (private)        │
 │  /topic/presence                     (public)         │
 └──────────────────────┬───────────────────────────────┘
                         │
@@ -146,7 +150,7 @@ See [backend/README.md](backend/README.md) for the full real-time sequence diagr
 - [x] **V2** — Real-time read receipts, a persisted notification center (bell + dashboard, pushed over WebSocket), and a user profile (display name, password change, avatar upload)
 - [x] **V3** — Group conversations: named groups with OWNER/MEMBER roles, add/remove members, leave (with automatic owner hand-off), and typing/read-receipts generalized to N participants ("Read 2/4")
 - [x] **V4** — Voice messages (record/upload/playback) and real Web Push notifications (service worker + VAPID, delivered even when the tab is closed)
-- [ ] **V5** — Video call foundation (WebRTC signaling relayed over STOMP, minimal call UI — not a full calling product)
+- [x] **V5** — Video call foundation: 1:1 calls in direct conversations, WebRTC signaling relayed over STOMP by a stateless server, voice-only fallback without a camera, and a minimal call UI (ring, accept/decline, mute, camera, hang up). Not a full calling product — no TURN server, no group calls, no call history
 - [ ] **V6** — Redis pub/sub as the STOMP broker relay, proven with 2+ backend replicas behind a load balancer (horizontal scaling)
 
 ---
@@ -159,8 +163,12 @@ See [backend/README.md](backend/README.md) for the full real-time sequence diagr
 | ![Sign in](docs/screenshots/login.png) | ![Dashboard](docs/screenshots/dashboard.png) |
 | **Direct chat** — voice message, read receipts | **Group chat** — members panel, roles |
 | ![Direct chat](docs/screenshots/chat-direct.png) | ![Group chat](docs/screenshots/chat-group.png) |
-| **Profile** — avatar, password, push notifications | |
-| ![Profile](docs/screenshots/profile.png) | |
+| **Profile** — avatar, password, push notifications | **Incoming call** |
+| ![Profile](docs/screenshots/profile.png) | ![Incoming call](docs/screenshots/call-incoming.png) |
+| **Video call** — remote video, local preview, controls | |
+| ![Video call](docs/screenshots/call-active.png) | |
+
+The video-call screenshot comes from the automated end-to-end check, so both "cameras" are Chromium's synthetic test pattern rather than real webcams — the video itself is a real WebRTC stream between two browsers.
 
 ---
 
@@ -178,6 +186,7 @@ pulsehub/
 │   ├── package.json
 │   ├── Dockerfile
 │   └── README.md
+├── e2e/                # Playwright check that drives real browsers through a video call
 ├── docker-compose.yml  # Orchestrates db + api + web together
 ├── .github/workflows/  # CI: backend build/test, frontend lint/build
 └── CLAUDE.md           # Guide for AI coding agents working in this repo

@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 
+import { CallOverlay } from "@/components/call/CallOverlay";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 
@@ -15,6 +16,7 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+      <CallOverlay />
     </div>
   );
 }

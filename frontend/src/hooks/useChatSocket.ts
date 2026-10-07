@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/context/AuthContext";
+import { handleCallSignal, hangUp } from "@/lib/call";
 import { connectSocket, disconnectSocket } from "@/lib/ws";
 import { usePresenceStore } from "@/store/presenceStore";
 import { useChatStore } from "@/store/chatStore";
@@ -17,13 +18,14 @@ import type { AppNotification, Message } from "@/types/chat";
  * the Zustand stores (presence/typing), which is why nothing else needs to poll.
  */
 export function useChatSocket() {
-  const { token, isAuthenticated } = useAuth();
+  const { token, isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
   const setStatus = usePresenceStore((state) => state.setStatus);
   const setTyping = useChatStore((state) => state.setTyping);
+  const userId = user?.id;
 
   useEffect(() => {
-    if (!isAuthenticated || !token) {
+    if (!isAuthenticated || !token || userId === undefined) {
       disconnectSocket();
       return;
     }
@@ -61,10 +63,15 @@ export function useChatSocket() {
         queryClient.setQueryData<number>(UNREAD_NOTIFICATIONS_QUERY_KEY, (old) => (old ?? 0) + 1);
         queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       },
+      onCallSignal: (signal) => {
+        handleCallSignal(signal, userId);
+      },
     });
 
     return () => {
+      // A call can't outlive the socket that signals for it; tell the peer before it closes.
+      hangUp();
       disconnectSocket();
     };
-  }, [isAuthenticated, token, queryClient, setStatus, setTyping]);
+  }, [isAuthenticated, token, userId, queryClient, setStatus, setTyping]);
 }

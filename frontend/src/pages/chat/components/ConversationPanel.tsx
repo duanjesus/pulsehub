@@ -13,8 +13,10 @@ import {
   useRemoveMember,
 } from "@/hooks/useConversations";
 import { useMessages, useSendVoiceMessage } from "@/hooks/useMessages";
+import { useCallStore } from "@/store/callStore";
 import { useChatStore } from "@/store/chatStore";
 import { usePresenceStore } from "@/store/presenceStore";
+import { startCall } from "@/lib/call";
 import { sendChatMessage, sendTyping } from "@/lib/ws";
 import { STATUS_LABELS } from "@/types/user";
 import type { Conversation, Message } from "@/types/chat";
@@ -44,6 +46,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
   const statusByUserId = usePresenceStore((state) => state.statusByUserId);
   const typingRecord = useChatStore((state) => state.typingByConversation[conversation.id]);
   const typingUserIds = useMemo(() => Object.keys(typingRecord ?? {}).map(Number), [typingRecord]);
+  const callPhase = useCallStore((state) => state.phase);
   const markAsRead = useMarkConversationAsRead();
   const addMember = useAddMember(conversation.id);
   const removeMember = useRemoveMember(conversation.id);
@@ -192,6 +195,26 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
           <Button variant="ghost" onClick={() => setShowMembers((v) => !v)}>
             Members
           </Button>
+        )}
+        {!isGroup && otherParticipants[0] && (
+          <button
+            type="button"
+            onClick={() =>
+              void startCall(conversation.id, {
+                id: otherParticipants[0].userId,
+                name: conversation.name,
+                avatarUrl: conversation.avatarUrl,
+              })
+            }
+            disabled={callPhase !== "idle"}
+            title="Start a video call"
+            aria-label="Start a video call"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+              <path d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z" />
+            </svg>
+          </button>
         )}
       </header>
 

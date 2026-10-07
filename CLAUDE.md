@@ -4,12 +4,13 @@ Guidance for Claude Code (or any AI coding agent) working in this repository.
 
 ## What this is
 
-A monorepo for PulseHub, a real-time communication platform: users sign up, see which of their contacts are **online / away / offline**, and exchange **text or voice messages** in **1:1 direct chats or named groups** with a live **typing indicator** and **read receipts** ("Read N/M" for a group's other members) — all pushed over a JWT-authenticated STOMP/WebSocket connection, not polled. New messages also generate a persisted, real-time-pushed **notification** (bell + dashboard card) for every recipient, plus a real **Web Push** notification via a service worker (delivered even with the tab closed), and users can manage a small **profile** (display name, password, avatar upload).
+A monorepo for PulseHub, a real-time communication platform: users sign up, see which of their contacts are **online / away / offline**, and exchange **text or voice messages** in **1:1 direct chats or named groups** with a live **typing indicator** and **read receipts** ("Read N/M" for a group's other members) — all pushed over a JWT-authenticated STOMP/WebSocket connection, not polled. New messages also generate a persisted, real-time-pushed **notification** (bell + dashboard card) for every recipient, plus a real **Web Push** notification via a service worker (delivered even with the tab closed), and users can manage a small **profile** (display name, password, avatar upload). Direct conversations can also start a **1:1 video call**: WebRTC between the two browsers, with only the signaling relayed over STOMP.
 
 ```
 pulsehub/
 ├── backend/    Spring Boot 3 API (Java 21, WebSocket/STOMP, PostgreSQL, Flyway, JWT auth)
 ├── frontend/   React + TypeScript SPA (Vite, Tailwind, TanStack Query, Zustand, STOMP.js/SockJS)
+├── e2e/        Playwright script that drives real browsers through a video call (not run by CI)
 ├── docker-compose.yml   Orchestrates db + api + web
 └── .github/workflows/ci.yml   Two jobs: backend (Maven), frontend (npm)
 ```
@@ -41,6 +42,8 @@ The frontend has **no backend code of its own** — it's a pure client of the AP
 | `backend/.../controller/*.java` (REST) | `frontend/src/hooks/use*.ts` |
 | `backend/.../controller/ws/ChatWebSocketController.java` (STOMP destinations) | `frontend/src/lib/ws.ts` |
 | `backend/.../entity/enums/NotificationType.java` | `frontend/src/types/chat.ts` (`NotificationType`) |
+| `backend/.../controller/ws/CallWebSocketController.java` + `CallSignalRequest`/`CallSignalEvent` | `frontend/src/lib/ws.ts` (`sendCallSignal`, `/user/queue/calls`) + `frontend/src/types/call.ts` |
+| `backend/.../entity/enums/CallSignalType.java` | `frontend/src/types/call.ts` (`CallSignalType`) + the `switch` in `lib/call.ts` |
 | `GlobalExceptionHandler` → `ErrorResponse` shape | `frontend/src/types/common.ts` (`ApiErrorResponse`) + `lib/api.ts` (`extractErrorMessage`) |
 
 API base path: `/api/v1`. All REST routes require a JWT (`Authorization: Bearer <token>`) except `/api/v1/auth/**`, `/uploads/**` and Swagger — `/api/v1/system-messages` is the one exception that requires neither: it's guarded by a separate `X-API-Key` mechanism instead (see below). There is no admin/role split — every authenticated user has the same single `ROLE_USER` authority, and every other registered user is a visible "contact" (`GET /api/v1/users`); there is no friend-request/approval flow.
@@ -58,6 +61,7 @@ The STOMP endpoint is `/ws` (SockJS fallback enabled). The CONNECT frame's `Auth
 - `/app/chat.send`, `/app/chat.typing` — client → server (`ChatWebSocketController`), payload carries a `conversationId` (never a `recipientId` — that concept doesn't exist since V3, since a group has no single recipient).
 - `/user/queue/messages`, `/user/queue/typing`, `/user/queue/read-receipts`, `/user/queue/notifications` — server → one specific user, via `SimpMessagingTemplate.convertAndSendToUser(email, ...)`, looped over **every currently-active participant** of the conversation (`ConversationService.getActiveParticipants`). **Never** broadcast a message, typing, read-receipt or notification event to a shared conversation topic — only current participants should ever see them, and a removed/left member must stop receiving immediately.
 - `/topic/presence` — server → everyone. Presence is intentionally public (Slack-workspace style), unlike messages.
+- `/app/call.signal` → `/user/queue/calls` — WebRTC signaling for 1:1 video calls (`CallWebSocketController`); see "Video calls (V5)" below.
 
 Read receipts and notifications are two independent signals, both triggered around the same message but not coupled: `ConversationServiceImpl.markAsRead` pushes a `ReadReceiptEvent` to *every other active participant* when their message is read (drives the ✓✓/`Read N/M` indicator), while `ChatWebSocketController.sendMessage` calls `NotificationServiceImpl.notifyNewMessage` once per recipient the moment the message is sent (drives the bell). Marking a conversation's messages as read does **not** mark its notification(s) as read, and vice versa — that's intentional, not an oversight; don't "fix" it by cross-wiring them without discussing it first.
 
@@ -73,12 +77,33 @@ Presence transitions: `ONLINE` on STOMP session connect, `OFFLINE` (+ `lastSeenA
 
 Web Push is best-effort and independent of the in-app notification: `NotificationServiceImpl.notifyNewMessage` calls `PushSubscriptionService.sendPush` after creating the persisted `Notification`, catches everything, and prunes the `PushSubscription` row on a `410`/`404` response. VAPID key material lives in `pulsehub.push.vapid.*`. See `backend/README.md`'s "Voice messages and Web Push" section for the full VAPID/BouncyCastle story.
 
+### Video calls (V5)
+
+1:1 only, `DIRECT` conversations only. Media is peer to peer over WebRTC; the server relays signaling and nothing else. One STOMP destination, `/app/call.signal` (`CallWebSocketController` → `CallSignalingServiceImpl.relay`), takes `{conversationId, callId, type, payload}` and forwards it to the other participant's `/user/queue/calls`. `payload` (SDP or ICE candidate, JSON-serialized by the browser) is opaque to the server — don't parse it there. See `backend/README.md`'s "Video calls" section for the full type table and sequence.
+
+- **The relay is stateless on purpose, keep it that way.** The server holds no "who is in a call" map: nothing to clean up when a browser vanishes, nothing to share between instances (which the planned V6 multi-replica setup will need). Every timeout therefore lives in `frontend/src/lib/call.ts` (30s unanswered on the caller, 45s on the callee). If you need the server to know about calls (call history, missed-call notifications), persist it — don't add in-memory state.
+- **Three types aren't a plain relay:** `UNAVAILABLE` is server-originated only (reply to an `OFFER` whose callee's `User.status` is `OFFLINE`; a client sending it is rejected); `ANSWER`/`REJECT` are also echoed to the *sender's* own sessions so their other tabs stop ringing; `KEEPALIVE` is never forwarded and exists only to call `PresenceService.recordActivity`, so a long call doesn't decay to `AWAY`. `recordActivity` is called for `OFFER`/`ANSWER`/`KEEPALIVE` only — not for the burst of ICE candidates, which would be a DB write each.
+- **Frames can arrive out of order.** Spring's inbound channel is a thread pool, so an `ICE_CANDIDATE` can overtake the `OFFER`/`ANSWER` it belongs to. `lib/call.ts` buffers candidates per `callId` until the remote description is set; don't "simplify" that buffer away.
+- **`lib/call.ts` is the only module that touches `RTCPeerConnection`/`getUserMedia`**, and the only writer of `store/callStore.ts`; `components/call/CallOverlay.tsx` only reads the store. Every `await` in `startCall`/`acceptCall` is followed by an `isCurrent(callId)` check because the call can end while a permission prompt is open — a new async step needs the same check, or it will leak a live camera.
+- **ICE servers** come from `GET /api/v1/calls/ice-servers` (`pulsehub.call.ice-servers`, `CallProperties`). Default is one public STUN server and **no TURN**, so peers behind symmetric NATs won't connect. An env-defined list *replaces* the YAML one (Spring doesn't merge lists across sources), so it must start at index 0: `PULSEHUB_CALL_ICESERVERS_0_URLS`, `..._0_USERNAME`, `..._0_CREDENTIAL`.
+- **Calls need a secure context.** `navigator.mediaDevices` is undefined on plain `http://` unless the host is `localhost` — so `http://pulsehub-web` from another container, or a LAN IP, shows "Calls only work over HTTPS or on localhost."
+
+**Verifying a call change** takes real browsers; green unit tests say nothing about the WebRTC half. `e2e/video-call.mjs` registers throwaway users, opens several Chromium contexts with fake media devices and walks through connect, mute, busy, decline, cancel, two tabs, and both voice-only directions, asserting on actual decoded remote video. Run it against the Docker stack, sharing the `web` container's network namespace so `http://localhost` is the app (and therefore a secure context):
+
+```bash
+docker compose up -d --build
+docker run --rm --network container:pulsehub-web --ipc=host -v "$PWD/e2e:/work" -w /work \
+  mcr.microsoft.com/playwright:v1.63.0-noble sh -c "npm install --no-audit --no-fund && node video-call.mjs"
+```
+
+(On Git Bash for Windows prefix with `MSYS_NO_PATHCONV=1`, or `-w /work` is rewritten to a Windows path. Set `SCREENSHOT_DIR` to a mounted directory to also capture the README screenshots. The image tag must match the `playwright` version in `e2e/package.json`.)
+
 ## Backend conventions (`backend/`)
 
 - Layered architecture: `controller` (REST) / `controller/ws` (STOMP) → `service` (+ `service/impl`) → `repository`, with MapStruct `mapper` interfaces (`UserMapper`, `NotificationMapper`) for straightforward entity→response DTO conversion only. Anything that composes data across entities or tables is assembled by hand in the service layer instead — `ConversationResponse` (participants + last message + unread count) and `MessageResponse.readBy` (a batch query against `MessageRead`, grouped in memory rather than N+1'd) are both built manually in `ConversationServiceImpl`; there's deliberately no `MessageMapper` since a `Message` entity alone can't produce a correct `readBy`.
 - Schema is owned by **Flyway** (`backend/src/main/resources/db/migration/V*.sql`), `ddl-auto: validate` — Hibernate never mutates the schema. Adding a column/table means a new `V<n>__description.sql` migration, never editing an already-applied one.
 - Custom exceptions (`ResourceNotFoundException`, `DuplicateResourceException`, `BusinessException`, `InvalidCredentialsException`) map to specific HTTP statuses in `GlobalExceptionHandler` — throw the right one rather than a generic exception.
-- Tests live in `backend/src/test`, JUnit 5 + Mockito + AssertJ, one test class per service impl that has real branching logic (`AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`, `NotificationServiceImplTest`, `UserServiceImplTest`, `MessageDispatchServiceImplTest`, `PushSubscriptionServiceImplTest`, `AudioStorageServiceImplTest`, `SystemMessageServiceImplTest`).
+- Tests live in `backend/src/test`, JUnit 5 + Mockito + AssertJ, one test class per service impl that has real branching logic (`AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`, `NotificationServiceImplTest`, `UserServiceImplTest`, `MessageDispatchServiceImplTest`, `PushSubscriptionServiceImplTest`, `AudioStorageServiceImplTest`, `SystemMessageServiceImplTest`, `CallSignalingServiceImplTest`).
 - Commit convention: Conventional Commits (`feat`, `fix`, `refactor`, `docs`, `style`, `test`, `chore`).
 - Avatar uploads are stored on disk under `pulsehub.uploads.dir` (`AvatarStorageServiceImpl`), not in the database — validated for content-type (`image/png|jpeg|webp|gif`) and size (≤5MB) before being written. The property defaults to a relative `uploads` dir, which resolves to `/app/uploads` inside the Docker image (pre-created and chowned to the `spring` user in `backend/Dockerfile`, backed by the `pulsehub-uploads-data` volume) and to `backend/uploads` for local `mvn spring-boot:run`. Served back publicly via the `/uploads/**` resource handler in `WebConfig` — there's no per-user access control on the URL itself, so don't treat it as anything more sensitive than a public avatar.
 

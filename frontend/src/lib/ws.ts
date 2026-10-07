@@ -1,6 +1,7 @@
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 
+import type { CallSignal, OutgoingCallSignal } from "@/types/call";
 import type { AppNotification, Message, ReadReceiptEvent, TypingEvent } from "@/types/chat";
 import type { PresenceEvent } from "@/types/user";
 
@@ -10,6 +11,7 @@ interface SocketCallbacks {
   onPresence: (event: PresenceEvent) => void;
   onReadReceipt: (event: ReadReceiptEvent) => void;
   onNotification: (notification: AppNotification) => void;
+  onCallSignal: (signal: CallSignal) => void;
 }
 
 const SOCKET_URL = import.meta.env.VITE_WS_BASE_URL ?? "/ws";
@@ -37,6 +39,7 @@ export function connectSocket(token: string, callbacks: SocketCallbacks): void {
         client!.subscribe("/topic/presence", (msg) => callbacks.onPresence(parseBody(msg))),
         client!.subscribe("/user/queue/read-receipts", (msg) => callbacks.onReadReceipt(parseBody(msg))),
         client!.subscribe("/user/queue/notifications", (msg) => callbacks.onNotification(parseBody(msg))),
+        client!.subscribe("/user/queue/calls", (msg) => callbacks.onCallSignal(parseBody(msg))),
       ];
     },
   });
@@ -62,5 +65,14 @@ export function sendTyping(conversationId: number, typing: boolean): void {
   client?.publish({
     destination: "/app/chat.typing",
     body: JSON.stringify({ conversationId, typing }),
+  });
+}
+
+export function sendCallSignal(signal: OutgoingCallSignal): void {
+  // Unlike chat, a signal published while the socket is down must be dropped, not thrown.
+  if (!client?.connected) return;
+  client.publish({
+    destination: "/app/call.signal",
+    body: JSON.stringify(signal),
   });
 }

@@ -60,6 +60,12 @@ pulsehub:
     away-after-minutes: 5
   uploads:
     dir: ${UPLOADS_DIR:uploads}
+  call:
+    # STUN only finds a direct path; peers behind strict NATs also need a TURN
+    # entry (urls + username + credential). An env-defined list replaces this
+    # one rather than merging, so start at PULSEHUB_CALL_ICESERVERS_0_URLS.
+    ice-servers:
+      - urls: stun:stun.l.google.com:19302
   push:
     vapid:
       public-key: ${VAPID_PUBLIC_KEY:BMg3hYcacW5e9wrbc5WtpmRvyUV8sxko3codZH9mry3xf_LXr0CV7Ndl8t2e8GkJ4h6obuzY40OMxRfSC7X8q7U}

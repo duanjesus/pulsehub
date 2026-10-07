@@ -8,10 +8,10 @@ import com.pulsehub.security.CurrentUserProvider;
 import com.pulsehub.service.ConversationService;
 import com.pulsehub.service.MessageDispatchService;
 import com.pulsehub.service.PresenceService;
+import com.pulsehub.service.RealtimeMessenger;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
@@ -35,7 +35,7 @@ public class ChatWebSocketController {
     private final MessageDispatchService messageDispatchService;
     private final PresenceService presenceService;
     private final CurrentUserProvider currentUserProvider;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessenger realtimeMessenger;
 
     @MessageMapping("/chat.send")
     public void sendMessage(@Payload SendMessageRequest request, Principal principal) {
@@ -56,7 +56,7 @@ public class ChatWebSocketController {
 
         conversationService.getActiveParticipants(request.conversationId()).stream()
                 .filter(user -> !user.getId().equals(sender.getId()))
-                .forEach(user -> messagingTemplate.convertAndSendToUser(user.getEmail(), "/queue/typing", event));
+                .forEach(user -> realtimeMessenger.sendToUser(user.getEmail(), "/queue/typing", event));
     }
 
 }

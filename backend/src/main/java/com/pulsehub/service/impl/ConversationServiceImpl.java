@@ -19,10 +19,10 @@ import com.pulsehub.repository.MessageRepository;
 import com.pulsehub.repository.UserRepository;
 import com.pulsehub.service.ConversationService;
 import com.pulsehub.service.MessageService;
+import com.pulsehub.service.RealtimeMessenger;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,7 +43,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final MessageReadRepository messageReadRepository;
     private final UserRepository userRepository;
     private final MessageService messageService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessenger realtimeMessenger;
 
     @Override
     @Transactional
@@ -225,7 +225,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .toList();
 
         ReadReceiptEvent event = new ReadReceiptEvent(conversationId, readerId, now);
-        others.forEach(user -> messagingTemplate.convertAndSendToUser(user.getEmail(), "/queue/read-receipts", event));
+        others.forEach(user -> realtimeMessenger.sendToUser(user.getEmail(), "/queue/read-receipts", event));
     }
 
     @Override

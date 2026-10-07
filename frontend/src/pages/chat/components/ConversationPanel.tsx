@@ -60,6 +60,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -92,6 +93,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
 
   useEffect(() => {
     setDraft("");
+    setSendError(null);
     setShowMembers(false);
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -113,7 +115,11 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
     const content = draft.trim();
     if (!content) return;
 
-    sendChatMessage(conversation.id, content);
+    if (!sendChatMessage(conversation.id, content)) {
+      setSendError("You're offline — reconnecting. Your message wasn't sent; try again in a moment.");
+      return;
+    }
+    setSendError(null);
     setDraft("");
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     sendTyping(conversation.id, false);
@@ -323,7 +329,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
       </div>
 
       <div className="border-t border-slate-200 px-4 py-3">
-        <ErrorBanner message={voiceError} />
+        <ErrorBanner message={sendError ?? voiceError} />
         <div className="flex items-center gap-2">
           {isRecording ? (
             <>

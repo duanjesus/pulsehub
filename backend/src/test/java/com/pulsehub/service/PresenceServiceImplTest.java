@@ -10,7 +10,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
@@ -28,7 +27,7 @@ class PresenceServiceImplTest {
     @Mock
     private UserRepository userRepository;
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessenger realtimeMessenger;
 
     @InjectMocks
     private PresenceServiceImpl presenceService;
@@ -47,7 +46,7 @@ class PresenceServiceImplTest {
         presenceService.recordActivity("ada@pulsehub.dev");
 
         assertThat(user.getStatus()).isEqualTo(UserStatus.ONLINE);
-        verify(messagingTemplate).convertAndSend(eq("/topic/presence"), any(Object.class));
+        verify(realtimeMessenger).broadcast(eq("/topic/presence"), any(Object.class));
     }
 
     @Test
@@ -58,7 +57,7 @@ class PresenceServiceImplTest {
 
         presenceService.recordActivity("ada@pulsehub.dev");
 
-        verifyNoInteractions(messagingTemplate);
+        verifyNoInteractions(realtimeMessenger);
     }
 
     @Test
@@ -73,7 +72,7 @@ class PresenceServiceImplTest {
         presenceService.reapInactiveUsers();
 
         assertThat(staleUser.getStatus()).isEqualTo(UserStatus.AWAY);
-        verify(messagingTemplate).convertAndSend(eq("/topic/presence"), any(Object.class));
+        verify(realtimeMessenger).broadcast(eq("/topic/presence"), any(Object.class));
     }
 
 }

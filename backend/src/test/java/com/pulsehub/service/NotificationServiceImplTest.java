@@ -14,7 +14,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.Optional;
 
@@ -33,7 +32,7 @@ class NotificationServiceImplTest {
     @Mock
     private NotificationMapper notificationMapper;
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessenger realtimeMessenger;
     @Mock
     private PushSubscriptionService pushSubscriptionService;
 
@@ -58,7 +57,7 @@ class NotificationServiceImplTest {
         assertThat(captor.getValue().getTitle()).isEqualTo("New message from Ada Lovelace");
         assertThat(captor.getValue().getBody()).isEqualTo("hey there");
 
-        verify(messagingTemplate).convertAndSendToUser(eq("grace@pulsehub.dev"), eq("/queue/notifications"), eq(response));
+        verify(realtimeMessenger).sendToUser(eq("grace@pulsehub.dev"), eq("/queue/notifications"), eq(response));
         verify(pushSubscriptionService).sendPush(2L, "New message from Ada Lovelace", "hey there", 1L);
     }
 
@@ -73,7 +72,7 @@ class NotificationServiceImplTest {
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(notificationRepository).save(captor.capture());
         assertThat(captor.getValue().getBody()).hasSize(201).endsWith("…");
-        verifyNoInteractions(messagingTemplate);
+        verifyNoInteractions(realtimeMessenger);
     }
 
 }

@@ -10,7 +10,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.List;
 
@@ -29,7 +28,7 @@ class MessageDispatchServiceImplTest {
     @Mock
     private NotificationService notificationService;
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessenger realtimeMessenger;
 
     @InjectMocks
     private MessageDispatchServiceImpl messageDispatchService;
@@ -50,9 +49,9 @@ class MessageDispatchServiceImplTest {
         MessageResponse result = messageDispatchService.dispatchTextMessage(10L, 1L, "hi");
 
         assertThat(result).isEqualTo(response);
-        verify(messagingTemplate).convertAndSendToUser("ada@pulsehub.dev", "/queue/messages", response);
-        verify(messagingTemplate).convertAndSendToUser("grace@pulsehub.dev", "/queue/messages", response);
-        verify(messagingTemplate).convertAndSendToUser("carol@pulsehub.dev", "/queue/messages", response);
+        verify(realtimeMessenger).sendToUser("ada@pulsehub.dev", "/queue/messages", response);
+        verify(realtimeMessenger).sendToUser("grace@pulsehub.dev", "/queue/messages", response);
+        verify(realtimeMessenger).sendToUser("carol@pulsehub.dev", "/queue/messages", response);
 
         verify(notificationService).notifyNewMessage(2L, "Ada", "hi", 10L);
         verify(notificationService).notifyNewMessage(3L, "Ada", "hi", 10L);

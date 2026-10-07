@@ -18,7 +18,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDateTime;
@@ -48,7 +47,7 @@ class ConversationServiceImplTest {
     @Mock
     private MessageService messageService;
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessenger realtimeMessenger;
 
     @InjectMocks
     private ConversationServiceImpl conversationService;
@@ -199,9 +198,9 @@ class ConversationServiceImplTest {
         conversationService.markAsRead(10L, 1L);
 
         verify(messageReadRepository).saveAll(anyList());
-        verify(messagingTemplate).convertAndSendToUser(eq("bob@pulsehub.dev"), eq("/queue/read-receipts"), any());
-        verify(messagingTemplate).convertAndSendToUser(eq("carol@pulsehub.dev"), eq("/queue/read-receipts"), any());
-        verify(messagingTemplate, never()).convertAndSendToUser(eq("reader@pulsehub.dev"), eq("/queue/read-receipts"), any());
+        verify(realtimeMessenger).sendToUser(eq("bob@pulsehub.dev"), eq("/queue/read-receipts"), any());
+        verify(realtimeMessenger).sendToUser(eq("carol@pulsehub.dev"), eq("/queue/read-receipts"), any());
+        verify(realtimeMessenger, never()).sendToUser(eq("reader@pulsehub.dev"), eq("/queue/read-receipts"), any());
     }
 
     @Test
@@ -211,7 +210,7 @@ class ConversationServiceImplTest {
 
         conversationService.markAsRead(10L, 1L);
 
-        verifyNoInteractions(messageReadRepository, messagingTemplate);
+        verifyNoInteractions(messageReadRepository, realtimeMessenger);
     }
 
 }

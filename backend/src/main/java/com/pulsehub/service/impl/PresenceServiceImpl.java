@@ -6,9 +6,9 @@ import com.pulsehub.entity.enums.UserStatus;
 import com.pulsehub.exception.ResourceNotFoundException;
 import com.pulsehub.repository.UserRepository;
 import com.pulsehub.service.PresenceService;
+import com.pulsehub.service.RealtimeMessenger;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +22,7 @@ public class PresenceServiceImpl implements PresenceService {
     private static final String PRESENCE_TOPIC = "/topic/presence";
 
     private final UserRepository userRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessenger realtimeMessenger;
 
     @Value("${pulsehub.presence.away-after-minutes}")
     private long awayAfterMinutes;
@@ -81,7 +81,7 @@ public class PresenceServiceImpl implements PresenceService {
     }
 
     private void broadcast(User user) {
-        messagingTemplate.convertAndSend(PRESENCE_TOPIC, new PresenceEvent(user.getId(), user.getStatus()));
+        realtimeMessenger.broadcast(PRESENCE_TOPIC, new PresenceEvent(user.getId(), user.getStatus()));
     }
 
 }

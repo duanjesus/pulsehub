@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -37,12 +38,17 @@ public class SystemUserInitializer implements ApplicationRunner {
         if (userRepository.existsByEmail(SYSTEM_BOT_EMAIL)) {
             return;
         }
-        userRepository.save(User.builder()
-                .name(SYSTEM_BOT_NAME)
-                .email(SYSTEM_BOT_EMAIL)
-                .password(passwordEncoder.encode(UUID.randomUUID().toString()))
-                .active(true)
-                .build());
-        log.info("Created system bot user ({})", SYSTEM_BOT_EMAIL);
+        try {
+            userRepository.save(User.builder()
+                    .name(SYSTEM_BOT_NAME)
+                    .email(SYSTEM_BOT_EMAIL)
+                    .password(passwordEncoder.encode(UUID.randomUUID().toString()))
+                    .active(true)
+                    .build());
+            log.info("Created system bot user ({})", SYSTEM_BOT_EMAIL);
+        } catch (DataIntegrityViolationException e) {
+            // Another instance booting at the same moment inserted it between our check and our save.
+            log.info("System bot user ({}) was created by another instance", SYSTEM_BOT_EMAIL);
+        }
     }
 }

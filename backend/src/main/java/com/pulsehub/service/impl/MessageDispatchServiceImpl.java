@@ -8,8 +8,8 @@ import com.pulsehub.service.ConversationService;
 import com.pulsehub.service.MessageDispatchService;
 import com.pulsehub.service.MessageService;
 import com.pulsehub.service.NotificationService;
+import com.pulsehub.service.RealtimeMessenger;
 import lombok.RequiredArgsConstructor;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -21,7 +21,7 @@ public class MessageDispatchServiceImpl implements MessageDispatchService {
     private final MessageService messageService;
     private final ConversationService conversationService;
     private final NotificationService notificationService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessenger realtimeMessenger;
 
     @Override
     public MessageResponse dispatchTextMessage(Long conversationId, Long senderId, String content) {
@@ -39,7 +39,7 @@ public class MessageDispatchServiceImpl implements MessageDispatchService {
         MessageResponse response = messageService.toResponse(message, List.of());
         List<User> participants = conversationService.getActiveParticipants(message.getConversationId());
 
-        participants.forEach(user -> messagingTemplate.convertAndSendToUser(user.getEmail(), "/queue/messages", response));
+        participants.forEach(user -> realtimeMessenger.sendToUser(user.getEmail(), "/queue/messages", response));
 
         User sender = participants.stream()
                 .filter(user -> user.getId().equals(senderId))

@@ -13,8 +13,8 @@ import com.pulsehub.exception.ResourceNotFoundException;
 import com.pulsehub.repository.ConversationRepository;
 import com.pulsehub.service.CallSignalingService;
 import com.pulsehub.service.ConversationService;
+import com.pulsehub.service.RealtimeMessenger;
 import lombok.RequiredArgsConstructor;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.EnumSet;
@@ -43,7 +43,7 @@ public class CallSignalingServiceImpl implements CallSignalingService {
 
     private final ConversationService conversationService;
     private final ConversationRepository conversationRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessenger realtimeMessenger;
     private final CallProperties callProperties;
 
     @Override
@@ -72,16 +72,16 @@ public class CallSignalingServiceImpl implements CallSignalingService {
                 .orElseThrow(() -> new BusinessException("The other participant is no longer in this conversation"));
 
         if (request.type() == CallSignalType.OFFER && peer.getStatus() == UserStatus.OFFLINE) {
-            messagingTemplate.convertAndSendToUser(sender.getEmail(), CALLS_QUEUE,
+            realtimeMessenger.sendToUser(sender.getEmail(), CALLS_QUEUE,
                     toEvent(request, CallSignalType.UNAVAILABLE, null, peer));
             return;
         }
 
         CallSignalEvent event = toEvent(request, request.type(), request.payload(), sender);
-        messagingTemplate.convertAndSendToUser(peer.getEmail(), CALLS_QUEUE, event);
+        realtimeMessenger.sendToUser(peer.getEmail(), CALLS_QUEUE, event);
 
         if (TYPES_ECHOED_TO_SENDER.contains(request.type())) {
-            messagingTemplate.convertAndSendToUser(sender.getEmail(), CALLS_QUEUE, event);
+            realtimeMessenger.sendToUser(sender.getEmail(), CALLS_QUEUE, event);
         }
     }
 

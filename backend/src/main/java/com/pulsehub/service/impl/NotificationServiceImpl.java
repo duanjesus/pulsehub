@@ -8,10 +8,10 @@ import com.pulsehub.repository.NotificationRepository;
 import com.pulsehub.repository.UserRepository;
 import com.pulsehub.service.NotificationService;
 import com.pulsehub.service.PushSubscriptionService;
+import com.pulsehub.service.RealtimeMessenger;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +24,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final NotificationMapper notificationMapper;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessenger realtimeMessenger;
     private final PushSubscriptionService pushSubscriptionService;
 
     @Override
@@ -40,7 +40,7 @@ public class NotificationServiceImpl implements NotificationService {
 
         Notification saved = notificationRepository.save(notification);
 
-        userRepository.findById(recipientId).ifPresent(recipient -> messagingTemplate.convertAndSendToUser(
+        userRepository.findById(recipientId).ifPresent(recipient -> realtimeMessenger.sendToUser(
                 recipient.getEmail(), "/queue/notifications", notificationMapper.toResponse(saved)));
 
         pushSubscriptionService.sendPush(recipientId, saved.getTitle(), saved.getBody(), conversationId);

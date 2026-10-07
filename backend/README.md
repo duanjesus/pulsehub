@@ -2,7 +2,7 @@
 
 # PulseHub — Backend
 
-### Spring Boot backend for a real-time communication platform: JWT auth, direct/group messaging (text and voice), presence, typing indicators, read receipts, real-time notifications, Web Push and 1:1 video-call signaling over STOMP/WebSocket
+### Spring Boot backend for a real-time communication platform: JWT auth, direct/group messaging (text and voice), presence, typing indicators, read receipts, real-time notifications, Web Push and 1:1 video-call signaling over STOMP/WebSocket — horizontally scalable through a Redis pub/sub relay
 
 [![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-brightgreen?logo=springboot)](https://spring.io/projects/spring-boot)
@@ -58,17 +58,17 @@ Client A                    Server                     Client B
    │ SEND /app/chat.send (conversationId)                    │
    ├─────────────────────────▶│  persist Message             │
    │                          │  for EVERY active participant:
-   │                          │  convertAndSendToUser(x) ───▶│ /user/queue/messages
+   │                          │  sendToUser(x) ─────────────▶│ /user/queue/messages
    │                          │  (sender included, for multi-tab sync)
    │                          │                            │
    │ SEND /app/chat.typing (conversationId)                  │
    ├─────────────────────────▶│  for every OTHER participant:
-   │                          │  convertAndSendToUser(x) ───▶│ /user/queue/typing
+   │                          │  sendToUser(x) ─────────────▶│ /user/queue/typing
    │                          │                            │
    │ POST /conversations/1/read (B reads A's message)       │
    ├─────────────────────────▶│  insert MessageRead rows     │
    │                          │  for every OTHER participant:
-   │                          │  convertAndSendToUser(x) ───▶│ /user/queue/read-receipts
+   │                          │  sendToUser(x) ─────────────▶│ /user/queue/read-receipts
    │                          │  (A's sent message's "Read N/M" count ticks up live)
    │                          │                            │
    │  DISCONNECT              │                            │
@@ -76,7 +76,7 @@ Client A                    Server                     Client B
    │                          ├───────────────────────────▶│ /topic/presence
 ```
 
-This flow is identical for a 1:1 chat and an N-person group — "every active participant" is 1 other person for a DIRECT conversation and N-1 for a GROUP. Messages, typing and read receipts are always sent to specific users' private queues via `SimpMessagingTemplate.convertAndSendToUser`, never broadcast to a shared conversation topic — only current participants ever see them (a removed/left member stops receiving anything immediately). Presence, by contrast, is public: everyone subscribes to `/topic/presence` (Slack-style workspace, not per-conversation visibility). A user idle for `pulsehub.presence.away-after-minutes` (default 5) while still connected is flipped from `ONLINE` to `AWAY` by a scheduled job (`PresenceScheduler`), and back to `ONLINE` the moment any STOMP frame from that session records activity again.
+This flow is identical for a 1:1 chat and an N-person group — "every active participant" is 1 other person for a DIRECT conversation and N-1 for a GROUP. Messages, typing and read receipts are always sent to specific users' private queues via `RealtimeMessenger.sendToUser` (which relays through Redis to whichever instance holds the session — see "Running on several instances"), never broadcast to a shared conversation topic — only current participants ever see them (a removed/left member stops receiving anything immediately). Presence, by contrast, is public: everyone subscribes to `/topic/presence` (Slack-style workspace, not per-conversation visibility). A user idle for `pulsehub.presence.away-after-minutes` (default 5) while still connected is flipped from `ONLINE` to `AWAY` by a scheduled job (`PresenceScheduler`), and back to `ONLINE` the moment any STOMP frame from that session records activity again.
 
 Every new message also creates a persisted `Notification` row for **each** recipient (`NotificationService.notifyNewMessage`, called once per participant other than the sender) and pushes it to `/user/queue/notifications` if they're connected — this is what powers the notification bell and the dashboard's Notifications card; it's independent of message read state (reading a conversation does not automatically mark its notification as read, and vice versa).
 
@@ -131,6 +131,33 @@ Everything is one STOMP destination, `/app/call.signal`, taking `{conversationId
 
 ICE servers come from `GET /api/v1/calls/ice-servers`, backed by `pulsehub.call.ice-servers` (`CallProperties`), so they can change without rebuilding the frontend. The default is a single public STUN server, which is enough when both peers can reach each other directly. **There is no TURN server**: two peers behind strict (symmetric) NATs will fail to connect until one is added to that list (`urls` + `username` + `credential`). Group calls are out of scope — they need an SFU or a full mesh, not a relay between two peers.
 
+### Running on several instances
+
+Each instance has its own in-memory STOMP broker, which only knows the WebSocket sessions connected to *it*. So no service calls `SimpMessagingTemplate` directly — everything pushed to a browser goes through `RealtimeMessenger`:
+
+```
+Service on instance A                 Redis                    every instance (A included)
+  realtimeMessenger.sendToUser(...)     │                              │
+  ── PUBLISH pulsehub:realtime ────────▶│── message ──────────────────▶│ RedisRealtimeMessenger.onMessage
+     {user, destination, payload}       │                              │   localBroker.convertAndSendToUser(...)
+                                                                        │   → delivered if that user has a session
+                                                                        │     here, silently dropped otherwise
+```
+
+`RedisRealtimeMessenger` is both the publisher and the listener. The publishing instance doesn't deliver directly; it receives its own frame back from Redis like every other instance, so there is exactly one delivery path whether the recipient is local or not. The payload is serialized once, with the application's `ObjectMapper`, into a JSON tree, and that tree is what each local broker sends — the bytes a browser receives are the same as before the relay existed. If the publish itself fails (Redis down), the frame is delivered to the local instance only and a warning is logged: users on that instance keep working, users elsewhere miss the frame.
+
+This is fan-out: every instance receives every frame, including ones for users it doesn't hold. That is the simple and correct choice at this scale; routing each user's frames only to the instance holding them would need a session registry in Redis.
+
+Other things that had to stop being per-instance:
+
+- **The presence reaper** (`PresenceScheduler`) fires on every instance, but takes a 50-second Redis lock (`SET NX EX`) first, so one instance per tick flips idle users to `AWAY`. Without Redis it runs anyway — a duplicated run is harmless, a skipped one is not.
+- **`SystemUserInitializer`** tolerates losing the race when two instances boot at once and both try to insert the bot user.
+- **`InstanceHeaderFilter`** stamps `X-PulseHub-Instance` (the container id, from `pulsehub.instance-id`) on every response, including the WebSocket handshake — that's how the end-to-end check knows which instance holds a socket.
+
+Already safe: authentication is a stateless JWT, presence is a column in PostgreSQL, Flyway takes a database lock during migration, and the call-signaling relay was built stateless in V5. Known gaps: presence is per user rather than per session (closing one of two tabs marks the user `OFFLINE`), a crashed instance can't mark its users offline (they show as `ONLINE` until they reconnect or the reaper ages them to `AWAY`), and uploads live on a volume that all instances must mount.
+
+The load balancer is the frontend's nginx — see [`frontend/nginx.conf`](../frontend/nginx.conf), which explains its own two non-obvious choices (re-resolving `api` through Docker's DNS, and hashing SockJS traffic on the session id with the plain `hash` rather than `hash ... consistent`).
+
 ### Package layout
 
 ```
@@ -166,6 +193,7 @@ backend/src/main/java/com/pulsehub
 | Auth          | Spring Security + JWT (jjwt, HS256)   |
 | Push          | Web Push / VAPID (`nl.martijndwars:web-push` + BouncyCastle) |
 | Calls         | WebRTC signaling relayed over STOMP (media is peer to peer) |
+| Scaling       | Redis pub/sub (Spring Data Redis, Lettuce) relaying frames between instances |
 | Mapping       | MapStruct                             |
 | Docs          | springdoc-openapi (Swagger UI)         |
 | Tests         | JUnit 5, Mockito, AssertJ              |
@@ -175,14 +203,14 @@ backend/src/main/java/com/pulsehub
 ## 🚀 Running locally
 
 ```bash
-# Database only
-docker compose up -d db   # from repo root
+# Database and Redis only
+docker compose up -d db redis   # from repo root
 
 cd backend
 mvn spring-boot:run
 ```
 
-API on `http://localhost:8080`, Swagger UI on `http://localhost:8080/swagger-ui.html`.
+API on `http://localhost:8080`, Swagger UI on `http://localhost:8080/swagger-ui.html`. Redis is required even for a single instance — it's the only delivery path — and is read from `REDIS_HOST`/`REDIS_PORT` (default `localhost:6379`).
 
 ## 🔌 API overview
 
@@ -239,6 +267,8 @@ mvn test
 `AuthServiceImplTest`, `ConversationServiceImplTest`, `PresenceServiceImplTest`, `NotificationServiceImplTest`, `UserServiceImplTest`, `MessageDispatchServiceImplTest`, `PushSubscriptionServiceImplTest` and `AudioStorageServiceImplTest` cover the registration/login rules, the online/away presence transitions, notification creation/push, profile updates, the shared text/voice dispatch path, Web Push subscribe/unsubscribe/send (including stale-subscription pruning on a `410`/`404`), and audio upload validation — all with Mockito, no real database needed. `ConversationServiceImplTest` is the largest: direct-conversation dedup via `directKey`, group creation (owner + members), add/remove-member permission checks, leave-with-owner-promotion, and the multi-participant read-receipt broadcast.
 
 `CallSignalingServiceImplTest` covers the signaling relay: forwarding to the other participant only, the `UNAVAILABLE` reply for an offline callee, the `ANSWER`/`REJECT` echo, the unrelayed `KEEPALIVE`, and every rejection (group conversation, non-participant, client-sent `UNAVAILABLE`, missing payload or `callId`). The WebRTC half can't be unit-tested from here — see [`e2e/video-call.mjs`](../e2e/video-call.mjs), which drives real browsers through a call.
+
+`RedisRealtimeMessengerTest` covers the relay with a mocked Redis: frames are published rather than delivered directly, a received frame is handed to the local broker (user-addressed or broadcast), an unreadable frame is dropped without throwing, and a failed publish falls back to local delivery. `PresenceSchedulerTest` covers the lock (winner runs, loser skips, Redis down runs anyway). Whether frames really cross between running instances is checked by [`e2e/multi-replica.mjs`](../e2e/multi-replica.mjs).
 
 Note: `PushSubscriptionServiceImplTest` uses syntactically-valid (but not secret) EC key material for its p256dh/auth fixtures — the `web-push` library actually parses these as real cryptographic keys, so arbitrary placeholder strings throw deep inside the library rather than failing the assertion you'd expect.
 

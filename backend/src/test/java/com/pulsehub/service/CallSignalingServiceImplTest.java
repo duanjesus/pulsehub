@@ -18,7 +18,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
@@ -41,7 +40,7 @@ class CallSignalingServiceImplTest {
     @Mock
     private ConversationRepository conversationRepository;
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessenger realtimeMessenger;
 
     private CallSignalingServiceImpl callSignalingService;
 
@@ -54,7 +53,7 @@ class CallSignalingServiceImplTest {
                 new CallProperties.IceServer(List.of("stun:stun.example.org:3478"), null, null),
                 new CallProperties.IceServer(List.of("turn:turn.example.org:3478"), "pulsehub", "secret")));
         callSignalingService = new CallSignalingServiceImpl(
-                conversationService, conversationRepository, messagingTemplate, properties);
+                conversationService, conversationRepository, realtimeMessenger, properties);
 
         ada = User.builder().id(1L).name("Ada").email("ada@pulsehub.dev").avatarUrl("/uploads/ada.png")
                 .status(UserStatus.ONLINE).build();
@@ -78,8 +77,8 @@ class CallSignalingServiceImplTest {
         callSignalingService.relay(1L, request(CallSignalType.OFFER, "{\"sdp\":\"v=0\"}"));
 
         ArgumentCaptor<CallSignalEvent> event = ArgumentCaptor.forClass(CallSignalEvent.class);
-        verify(messagingTemplate).convertAndSendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), event.capture());
-        verifyNoMoreInteractions(messagingTemplate);
+        verify(realtimeMessenger).sendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), event.capture());
+        verifyNoMoreInteractions(realtimeMessenger);
 
         assertThat(event.getValue()).isEqualTo(new CallSignalEvent(
                 CONVERSATION_ID, "call-1", CallSignalType.OFFER, "{\"sdp\":\"v=0\"}", 1L, "Ada", "/uploads/ada.png"));
@@ -93,8 +92,8 @@ class CallSignalingServiceImplTest {
         callSignalingService.relay(1L, request(CallSignalType.OFFER, "{\"sdp\":\"v=0\"}"));
 
         ArgumentCaptor<CallSignalEvent> event = ArgumentCaptor.forClass(CallSignalEvent.class);
-        verify(messagingTemplate).convertAndSendToUser(eq("ada@pulsehub.dev"), eq(CALLS_QUEUE), event.capture());
-        verifyNoMoreInteractions(messagingTemplate);
+        verify(realtimeMessenger).sendToUser(eq("ada@pulsehub.dev"), eq(CALLS_QUEUE), event.capture());
+        verifyNoMoreInteractions(realtimeMessenger);
 
         assertThat(event.getValue().type()).isEqualTo(CallSignalType.UNAVAILABLE);
         assertThat(event.getValue().senderId()).isEqualTo(2L);
@@ -108,7 +107,7 @@ class CallSignalingServiceImplTest {
 
         callSignalingService.relay(1L, request(CallSignalType.OFFER, "{\"sdp\":\"v=0\"}"));
 
-        verify(messagingTemplate).convertAndSendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
+        verify(realtimeMessenger).sendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
     }
 
     @Test
@@ -117,8 +116,8 @@ class CallSignalingServiceImplTest {
 
         callSignalingService.relay(2L, request(CallSignalType.ANSWER, "{\"sdp\":\"v=0\"}"));
 
-        verify(messagingTemplate).convertAndSendToUser(eq("ada@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
-        verify(messagingTemplate).convertAndSendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
+        verify(realtimeMessenger).sendToUser(eq("ada@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
+        verify(realtimeMessenger).sendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
     }
 
     @Test
@@ -128,8 +127,8 @@ class CallSignalingServiceImplTest {
 
         callSignalingService.relay(1L, request(CallSignalType.HANGUP, null));
 
-        verify(messagingTemplate).convertAndSendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
-        verifyNoMoreInteractions(messagingTemplate);
+        verify(realtimeMessenger).sendToUser(eq("grace@pulsehub.dev"), eq(CALLS_QUEUE), any(CallSignalEvent.class));
+        verifyNoMoreInteractions(realtimeMessenger);
     }
 
     @Test
@@ -137,7 +136,7 @@ class CallSignalingServiceImplTest {
         callSignalingService.relay(1L, request(CallSignalType.KEEPALIVE, null));
 
         verify(conversationService).assertActiveParticipant(CONVERSATION_ID, 1L);
-        verifyNoInteractions(messagingTemplate, conversationRepository);
+        verifyNoInteractions(realtimeMessenger, conversationRepository);
     }
 
     @Test
@@ -149,7 +148,7 @@ class CallSignalingServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("direct conversations");
 
-        verifyNoInteractions(messagingTemplate);
+        verifyNoInteractions(realtimeMessenger);
     }
 
     @Test
@@ -160,7 +159,7 @@ class CallSignalingServiceImplTest {
         assertThatThrownBy(() -> callSignalingService.relay(7L, request(CallSignalType.OFFER, "{\"sdp\":\"v=0\"}")))
                 .isInstanceOf(AccessDeniedException.class);
 
-        verifyNoInteractions(messagingTemplate, conversationRepository);
+        verifyNoInteractions(realtimeMessenger, conversationRepository);
     }
 
     @Test
@@ -168,7 +167,7 @@ class CallSignalingServiceImplTest {
         assertThatThrownBy(() -> callSignalingService.relay(1L, request(CallSignalType.UNAVAILABLE, null)))
                 .isInstanceOf(BusinessException.class);
 
-        verifyNoInteractions(messagingTemplate, conversationService);
+        verifyNoInteractions(realtimeMessenger, conversationService);
     }
 
     @Test
@@ -177,7 +176,7 @@ class CallSignalingServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("payload");
 
-        verifyNoInteractions(messagingTemplate, conversationService);
+        verifyNoInteractions(realtimeMessenger, conversationService);
     }
 
     @Test
@@ -187,7 +186,7 @@ class CallSignalingServiceImplTest {
         assertThatThrownBy(() -> callSignalingService.relay(1L, request))
                 .isInstanceOf(BusinessException.class);
 
-        verifyNoInteractions(messagingTemplate, conversationService);
+        verifyNoInteractions(realtimeMessenger, conversationService);
     }
 
     @Test

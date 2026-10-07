@@ -17,12 +17,29 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: pulsehub-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # No container_name and no host port: both must be unique per container, and this
+  # service runs as several replicas. Reach the API through `web` (the load balancer).
   api:
     build: ./backend
-    container_name: pulsehub-api
     restart: unless-stopped
+    deploy:
+      replicas: 2
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       DB_HOST: db
@@ -30,10 +47,9 @@ services:
       DB_NAME: pulsehub_db
       DB_USER: pulsehub_user
       DB_PASSWORD: pulsehub_pass
+      REDIS_HOST: redis
       JWT_SECRET: ${JWT_SECRET:-cHVsc2VodWItYXBpLXN1cGVyLXNlY3JldC1rZXktY2hhbmdlLWluLXByb2R1Y3Rpb24=}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
-    ports:
-      - "8080:8080"
     volumes:
       - pulsehub-uploads-data:/app/uploads
 
@@ -45,6 +61,7 @@ services:
       - api
     ports:
       - "3000:80"
+      - "8080:8080"
 
 volumes:
   pulsehub-db-data:

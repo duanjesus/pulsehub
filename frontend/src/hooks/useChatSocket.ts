@@ -22,6 +22,7 @@ export function useChatSocket() {
   const queryClient = useQueryClient();
   const setStatus = usePresenceStore((state) => state.setStatus);
   const setTyping = useChatStore((state) => state.setTyping);
+  const hydratePresence = usePresenceStore((state) => state.hydrate);
   const userId = user?.id;
 
   useEffect(() => {
@@ -66,6 +67,11 @@ export function useChatSocket() {
       onCallSignal: (signal) => {
         handleCallSignal(signal, userId);
       },
+      onReconnect: () => {
+        // Drop the live presence overlay and refetch everything, so the UI catches up on what the gap swallowed.
+        hydratePresence([]);
+        queryClient.invalidateQueries();
+      },
     });
 
     return () => {
@@ -73,5 +79,5 @@ export function useChatSocket() {
       hangUp();
       disconnectSocket();
     };
-  }, [isAuthenticated, token, userId, queryClient, setStatus, setTyping]);
+  }, [isAuthenticated, token, userId, queryClient, setStatus, setTyping, hydratePresence]);
 }

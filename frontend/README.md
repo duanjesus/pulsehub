@@ -79,6 +79,12 @@ Things the engine handles that are easy to get wrong:
 
 `lib/ws.ts` wraps `@stomp/stompjs` + `sockjs-client` into a handful of functions (`connectSocket`, `disconnectSocket`, `sendChatMessage`, `sendTyping`, `sendCallSignal`) — nothing else in the app touches STOMP directly.
 
+**Losing the socket is normal, not exceptional.** Behind a load balancer a backend instance can go away at any time; the STOMP client reconnects on its own (5s delay) and may land on a different instance. Two things follow. Frames pushed during the gap are gone, so on every *re*connect `useChatSocket` clears the presence overlay and invalidates every query, letting REST bring the UI back up to date. And `publish()` throws while disconnected, so each sender in `lib/ws.ts` checks first: typing and call signals are dropped, while `sendChatMessage` returns `false` and `ConversationPanel` keeps the draft and says the message wasn't sent.
+
+## The load balancer
+
+In the Docker image, [`nginx.conf`](nginx.conf) does more than serve the SPA: it is the load balancer in front of the API replicas. It re-resolves the `api` service through Docker's DNS (so `docker compose up -d --scale api=3` takes effect without a reload), round-robins REST calls, and hashes `/ws/` traffic on the SockJS session id so the several HTTP requests of a fallback transport all reach the instance holding that session. It also listens on 8080 to expose the balanced API directly (Swagger, curl, other services). The Vite dev server is unaffected — it proxies to a single backend on `localhost:8080`.
+
 Note that reading a conversation and reading a notification are independent actions: opening a chat marks its *messages* as read (and notifies the other participants), but does not mark the corresponding *notification* as read — that only happens when the bell dropdown or the dashboard's Notifications card is clicked. This mirrors the backend, which tracks the two as separate entities on purpose.
 
 **Zustand gotcha worth knowing:** never call a store method that computes and returns a new array/object from inside a `useStore(state => ...)` selector — each call returns a different reference, and `useSyncExternalStore` (which Zustand v5 uses internally) will loop and crash the component with "The result of getSnapshot should be cached." Select the raw state slice instead and derive with `useMemo` in the component (see `typingRecord`/`typingUserIds` in `ConversationPanel.tsx`).

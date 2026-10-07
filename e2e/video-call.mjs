@@ -1,103 +1,27 @@
-import { chromium } from "playwright";
-
-// Run inside the Playwright image, sharing the web container's network so http://localhost is a secure context (see CLAUDE.md).
-const BASE = process.env.BASE_URL ?? "http://localhost";
-const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR;
-const run = Date.now().toString(36);
-const results = [];
-const pageErrors = [];
-
-async function screenshot(page, name) {
-  if (SCREENSHOT_DIR) await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png` });
-}
-
-function check(name, ok, detail = "") {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
-}
-
-async function step(name, fn) {
-  try {
-    const detail = await fn();
-    check(name, true, detail ?? "");
-  } catch (error) {
-    check(name, false, String(error.message ?? error).split("\n")[0]);
-  }
-}
-
-async function register(name) {
-  const response = await fetch(`${BASE}/api/v1/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, email: `${name.toLowerCase()}.${run}@pulsehub.dev`, password: "Secret123!" }),
-  });
-  if (!response.ok) throw new Error(`register ${name}: ${response.status} ${await response.text()}`);
-  return response.json();
-}
-
-async function openSession(browser, auth, label, { camera = true } = {}) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  await context.addInitScript(
-    ([token, user, hasCamera]) => {
-      localStorage.setItem("pulsehub.token", token);
-      localStorage.setItem("pulsehub.user", JSON.stringify(user));
-      if (!hasCamera) {
-        const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-        navigator.mediaDevices.getUserMedia = (constraints) =>
-          constraints?.video
-            ? Promise.reject(new DOMException("Requested device not found", "NotFoundError"))
-            : original(constraints);
-      }
-    },
-    [auth.token, { id: auth.id, name: auth.name, email: auth.email }, camera],
-  );
-  const page = await newPage(context, label);
-  return { context, page, auth, label };
-}
-
-async function newPage(context, label) {
-  const page = await context.newPage();
-  page.on("pageerror", (error) => pageErrors.push(`${label}: ${error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error" && !message.text().includes("favicon")) pageErrors.push(`${label} console: ${message.text()}`);
-  });
-  return page;
-}
-
-async function openChatWith(session, other) {
-  await session.page.goto(`${BASE}/chat?with=${other.id}`);
-  await session.page.getByRole("button", { name: "Start a video call" }).waitFor({ timeout: 15000 });
-}
-
-const callDialog = (page, peerName) => page.getByRole("dialog", { name: `Call with ${peerName}` });
-const incomingDialog = (page, peerName) => page.getByRole("dialog", { name: `Incoming call from ${peerName}` });
-const startButton = (page) => page.getByRole("button", { name: "Start a video call" });
-
-/** Resolves once the labelled <video> is really rendering frames (dimensions known and playback advancing). */
-async function expectPlayingVideo(page, label) {
-  const video = page.getByLabel(label);
-  await video.waitFor({ state: "visible", timeout: 20000 });
-  const handle = await video.elementHandle();
-  await page.waitForFunction((el) => el.videoWidth > 0 && el.currentTime > 0.3 && !el.paused, handle, { timeout: 20000 });
-  return page.evaluate((el) => `${el.videoWidth}x${el.videoHeight} t=${el.currentTime.toFixed(1)}s`, handle);
-}
-
-async function expectActive(page, peerName) {
-  await callDialog(page, peerName).getByText(/^\d\d:\d\d$/).waitFor({ timeout: 20000 });
-}
-
-async function expectNoCallUi(page) {
-  await page.getByRole("dialog").waitFor({ state: "detached", timeout: 10000 });
-}
+import {
+  BASE,
+  callDialog,
+  expectActive,
+  expectNoCallUi,
+  expectPlayingVideo,
+  finish,
+  incomingDialog,
+  launchBrowser,
+  newPage,
+  openChatWith,
+  openSession,
+  register,
+  screenshot,
+  startButton,
+  step,
+} from "./lib.mjs";
 
 async function liveLocalTracks(page) {
   // Every track the app opened must be stopped once the call is over (camera light off).
   return page.evaluate(() => window.__openedTracks?.filter((t) => t.readyState === "live").length ?? -1);
 }
 
-const browser = await chromium.launch({
-  args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
-});
+const browser = await launchBrowser();
 
 try {
   const [adaAuth, graceAuth, linusAuth, noCamAuth] = await Promise.all(
@@ -301,7 +225,7 @@ try {
     const response = await fetch(`${BASE}/api/v1/conversations/group`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${adaAuth.token}` },
-      body: JSON.stringify({ name: `Team ${run}`, memberIds: [graceAuth.id, linusAuth.id] }),
+      body: JSON.stringify({ name: `Team ${Date.now()}`, memberIds: [graceAuth.id, linusAuth.id] }),
     });
     if (!response.ok) throw new Error(`create group: ${response.status} ${await response.text()}`);
     const group = await response.json();
@@ -309,12 +233,8 @@ try {
     await ada.page.getByRole("button", { name: "Members" }).waitFor({ timeout: 10000 });
     if (await startButton(ada.page).count()) throw new Error("call button visible in a group");
   });
-
-  check("no page errors or console errors in any browser", pageErrors.length === 0, pageErrors.slice(0, 5).join(" | "));
 } finally {
   await browser.close();
 }
 
-const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
-process.exit(failed.length ? 1 : 0);
+finish();

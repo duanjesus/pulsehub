@@ -12,6 +12,8 @@ interface SocketCallbacks {
   onReadReceipt: (event: ReadReceiptEvent) => void;
   onNotification: (notification: AppNotification) => void;
   onCallSignal: (signal: CallSignal) => void;
+  /** The socket dropped and came back (possibly on another backend instance); anything pushed in between was missed. */
+  onReconnect: () => void;
 }
 
 const SOCKET_URL = import.meta.env.VITE_WS_BASE_URL ?? "/ws";
@@ -28,11 +30,16 @@ export function connectSocket(token: string, callbacks: SocketCallbacks): void {
     return;
   }
 
+  let hasConnectedBefore = false;
+
   client = new Client({
     webSocketFactory: () => new SockJS(SOCKET_URL),
     connectHeaders: { Authorization: `Bearer ${token}` },
     reconnectDelay: 5000,
     onConnect: () => {
+      if (hasConnectedBefore) callbacks.onReconnect();
+      hasConnectedBefore = true;
+
       subscriptions = [
         client!.subscribe("/user/queue/messages", (msg) => callbacks.onMessage(parseBody(msg))),
         client!.subscribe("/user/queue/typing", (msg) => callbacks.onTyping(parseBody(msg))),
@@ -54,22 +61,28 @@ export function disconnectSocket(): void {
   client = null;
 }
 
-export function sendChatMessage(conversationId: number, content: string): void {
-  client?.publish({
+// publish() throws while the socket is down (e.g. reconnecting after a backend instance went away),
+// so every sender checks first: ephemeral frames are dropped, a chat message is reported as unsent.
+
+/** Returns false if the socket is down and nothing was sent, so the caller can keep the draft. */
+export function sendChatMessage(conversationId: number, content: string): boolean {
+  if (!client?.connected) return false;
+  client.publish({
     destination: "/app/chat.send",
     body: JSON.stringify({ conversationId, content }),
   });
+  return true;
 }
 
 export function sendTyping(conversationId: number, typing: boolean): void {
-  client?.publish({
+  if (!client?.connected) return;
+  client.publish({
     destination: "/app/chat.typing",
     body: JSON.stringify({ conversationId, typing }),
   });
 }
 
 export function sendCallSignal(signal: OutgoingCallSignal): void {
-  // Unlike chat, a signal published while the socket is down must be dropped, not thrown.
   if (!client?.connected) return;
   client.publish({
     destination: "/app/call.signal",

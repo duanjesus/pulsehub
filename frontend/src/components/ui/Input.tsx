@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes } from "react";
+import { forwardRef, useId, type InputHTMLAttributes } from "react";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -7,7 +7,10 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, id, className = "", ...props }, ref) => {
-    const inputId = id ?? props.name;
+    // Without an id or a name the label used to point at nothing, so clicking it did not focus
+    // the field and screen readers announced an unnamed input.
+    const generatedId = useId();
+    const inputId = id ?? props.name ?? generatedId;
     return (
       <div className="flex flex-col gap-1">
         {label && (
